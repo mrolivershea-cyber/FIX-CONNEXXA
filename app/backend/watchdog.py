@@ -1,8 +1,9 @@
 """
-CONNEXA v7.4.6 - Watchdog Monitor
+CONNEXA v7.4.7 - Watchdog Monitor
 Monitors PPP interfaces and auto-restarts backend on failures
 
 FIX #5: Watchdog auto-restart on zero PPP interfaces
+v7.4.7: Enhanced monitoring and recovery logic
 """
 import os
 import time
@@ -36,7 +37,8 @@ class WatchdogMonitor:
         self.check_interval = check_interval
         self.zero_ppp_count = 0
         self.consecutive_threshold = 3
-        logger.info(f"WatchdogMonitor v7.4.6 initialized (check_interval={check_interval}s)")
+        self.version = "7.4.7"
+        logger.info(f"WatchdogMonitor v{self.version} initialized (check_interval={check_interval}s)")
     
     def count_ppp_interfaces(self) -> int:
         """
