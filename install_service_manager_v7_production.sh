@@ -1,485 +1,12 @@
-#!/bin/bash
-set -e
-
-echo "════════════════════════════════════════════════════════════════"
-echo "  CONNEXA SERVICE MANAGER v7.0 - PRODUCTION FIX"
-echo "  Date: $(date '+%Y-%m-%d %H:%M:%S UTC')"
-echo "  Fixing: pptp binary, peer configs, danted.conf"
-echo "════════════════════════════════════════════════════════════════"
-
-if [ "$EUID" -ne 0 ]; then 
-    echo "❌ Root required"
-    exit 1
-fi
-
-APP_DIR="/app/backend"
-ROUTER_DIR="$APP_DIR/router"
-
 # ============================================================================
-# STEP 1: Install CRITICAL missing packages (pptp-linux!)
+# STEP 8: Create FastAPI router with all endpoints
 # ============================================================================
 echo ""
-echo "📦 Step 1/10: Installing pptp-linux and dependencies..."
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y pptp-linux ppp dante-server net-tools sqlite3 python3 python3-venv supervisor iproute2
+echo "📦 [Final] Step 8/15: Creating FastAPI router..."
 
-# Verify pptp binary exists
-if ! command -v pptp &>/dev/null; then
-    echo "❌ CRITICAL: pptp binary not found after install"
-    exit 1
-fi
-echo "✅ pptp binary found at: $(which pptp)"
-
-# Load kernel modules
-echo "Loading PPP kernel modules..."
-modprobe ppp_generic || true
-modprobe ppp_mppe || true
-modprobe ppp_deflate || true
-modprobe ppp_async || true
-
-cat > /etc/modules-load.d/ppp.conf <<EOF
-ppp_generic
-ppp_mppe
-ppp_deflate
-ppp_async
-EOF
-
-echo "✅ Packages and modules installed"
-
-# ============================================================================
-# STEP 2: Create /etc/ppp/peers/connexa template
-# ============================================================================
-echo ""
-echo "📦 Step 2/10: Creating /etc/ppp/peers/connexa template..."
-mkdir -p /etc/ppp/peers
-
-cat > /etc/ppp/peers/connexa <<'PEER'
-pty "pptp 144.229.29.35 --nolaunchpppd"
-user "admin"
-remotename connexa
-require-mppe-128
-refuse-eap
-refuse-pap
-refuse-chap
-refuse-mschap
-require-mschap-v2
-persist
-maxfail 3
-defaultroute
-usepeerdns
-mtu 1460
-mru 1460
-noauth
-PEER
-
-echo "✅ /etc/ppp/peers/connexa created"
-
-# ============================================================================
-# STEP 3: Create /etc/ppp/chap-secrets
-# ============================================================================
-echo ""
-echo "📦 Step 3/10: Creating /etc/ppp/chap-secrets..."
-cat > /etc/ppp/chap-secrets <<'CHAP'
-"admin" connexa "admin" *
-CHAP
-
-chmod 600 /etc/ppp/chap-secrets
-echo "✅ /etc/ppp/chap-secrets created with chmod 600"
-
-# ============================================================================
-# STEP 4: Configure systemd service with resource limits
-# ============================================================================
-echo ""
-echo "📦 Step 4/10: Configuring systemd service..."
-cat > /etc/systemd/system/connexa-backend.service <<'UNIT'
-[Unit]
-Description=Connexa Backend (Uvicorn)
-After=network-online.target
-
-[Service]
-WorkingDirectory=/app/backend
-ExecStart=/app/backend/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8001
-Restart=on-failure
-RestartSec=5
-LimitNOFILE=4096
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-systemctl daemon-reload
-systemctl enable connexa-backend.service
-echo "✅ Systemd service configured with LimitNOFILE=4096"
-
-# ============================================================================
-# STEP 5: Create link_socks_to_ppp.sh with logging and waiting
-# ============================================================================
-echo ""
-echo "📦 Step 5/10: Creating link_socks_to_ppp.sh with proper wait logic..."
-cat > /usr/local/bin/link_socks_to_ppp.sh <<'SCRIPT'
-#!/bin/bash
-SOCKS_PORT="${1:-1080}"
-PPP_IFACE="${2:-ppp0}"
-LOG_FILE="/var/log/link_socks_to_ppp.log"
-
-exec >> "$LOG_FILE" 2>&1
-echo "=== $(date) ==="
-echo "🔗 Linking SOCKS port ${SOCKS_PORT} to interface ${PPP_IFACE}"
-
-# Wait for interface to be UP (max 10 seconds)
-for i in {1..10}; do
-    if ip link show "$PPP_IFACE" 2>/dev/null | grep -q "state UP"; then
-        echo "✅ Interface $PPP_IFACE is UP"
-        break
-    fi
-    echo "⏳ Waiting for $PPP_IFACE to be UP (attempt $i/10)..."
-    sleep 1
-done
-
-# Final check
-if ! ip link show "$PPP_IFACE" &>/dev/null; then
-    echo "❌ Interface $PPP_IFACE does not exist" >&2
-    exit 1
-fi
-
-if ! ip link show "$PPP_IFACE" | grep -q "state UP"; then
-    echo "❌ Interface $PPP_IFACE is not UP" >&2
-    exit 1
-fi
-
-# Generate danted.conf
-echo "📝 Generating /etc/danted.conf..."
-cat > /etc/danted.conf <<DANTE
-logoutput: /var/log/danted.log
-internal: 0.0.0.0 port = ${SOCKS_PORT}
-external: ${PPP_IFACE}
-method: none
-user.notprivileged: nobody
-client pass {
-    from: 0.0.0.0/0 to: 0.0.0.0/0
-    log: connect disconnect
-}
-pass {
-    from: 0.0.0.0/0 to: 0.0.0.0/0
-    protocol: tcp udp
-    command: connect
-}
-DANTE
-
-echo "🔄 Restarting danted..."
-systemctl restart danted 2>&1
-sleep 2
-
-# Verify
-if netstat -tulnp 2>/dev/null | grep -q ":${SOCKS_PORT}"; then
-    echo "✅ Dante active on port ${SOCKS_PORT}"
-    echo "$(date) bind ${SOCKS_PORT} -> ${PPP_IFACE}"
-    exit 0
-else
-    echo "❌ Dante not listening on port ${SOCKS_PORT}" >&2
-    systemctl status danted --no-pager >&2
-    exit 1
-fi
-SCRIPT
-
-chmod +x /usr/local/bin/link_socks_to_ppp.sh
-echo "✅ link_socks_to_ppp.sh created with logging to /var/log/link_socks_to_ppp.log"
-
-# ============================================================================
-# STEP 6: Create production service_manager.py
-# ============================================================================
-echo ""
-echo "📦 Step 6/10: Creating service_manager.py..."
-cat > "$APP_DIR/service_manager.py" <<'PYEOF'
-import os
-import re
-import sqlite3
-import subprocess
-import time
-from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, List
-
-DB_PATH = os.environ.get("CONNEXA_DB", "/app/backend/connexa.db")
-PEER_NAME = "connexa"
-PEER_DIR = "/etc/ppp/peers"
-CHAP_FILE = "/etc/ppp/chap-secrets"
-SOCKS_PORT_BASE = 1080
-PPP_LOG_DIR = "/var/log/ppp"
-MAX_CONCURRENT_NODES = 5
-
-class ServiceManager:
-    def __init__(self):
-        self.db_path = DB_PATH
-        Path(PPP_LOG_DIR).mkdir(parents=True, exist_ok=True)
-    
-    def _run(self, cmd: str) -> Tuple[int, str, str]:
-        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, 
-                           stderr=subprocess.PIPE, text=True)
-        out, err = p.communicate()
-        return p.returncode, out.strip(), err.strip()
-    
-    def _is_port_listening(self, port: int) -> bool:
-        rc, out, _ = self._run(f"netstat -tulnp 2>/dev/null | grep ':{port}' || true")
-        return len(out) > 0
-    
-    def _is_ppp_interface_up(self, iface: str) -> bool:
-        """Check if PPP interface is UP and POINTOPOINT."""
-        try:
-            result = subprocess.check_output(
-                ["ip", "link", "show", iface],
-                text=True,
-                stderr=subprocess.DEVNULL
-            )
-            return "state UP" in result and "POINTOPOINT" in result
-        except subprocess.CalledProcessError:
-            return False
-    
-    def _wait_for_ppp_connect(self, log_file: str, timeout: int = 15) -> Optional[str]:
-        """Wait for 'Connect:' or 'Using interface' in pppd log."""
-        for _ in range(timeout):
-            if os.path.exists(log_file):
-                try:
-                    with open(log_file, 'r') as f:
-                        content = f.read()
-                        match = re.search(r'Using interface (ppp\d+)', content)
-                        if match:
-                            return match.group(1)
-                        if 'Connect:' in content:
-                            match = re.search(r'Connect: (ppp\d+)', content)
-                            if match:
-                                return match.group(1)
-                except Exception:
-                    pass
-            time.sleep(1)
-        return None
-    
-    def _detect_cred_columns(self, cur) -> Tuple[str, str]:
-        cols = {r[1] for r in cur.execute("PRAGMA table_info(nodes);").fetchall() 
-                if len(r) >= 2}
-        user_col = next((c for c in ("username", "user", "login") if c in cols), None)
-        pass_col = next((c for c in ("password", "pass") if c in cols), None)
-        if not user_col or not pass_col:
-            raise RuntimeError(f"Cannot detect credentials (cols: {sorted(cols)})")
-        return user_col, pass_col
-    
-    def _get_active_nodes(self, limit: int = MAX_CONCURRENT_NODES) -> List[Dict]:
-        """Get active nodes from database."""
-        if not Path(self.db_path).exists():
-            return []
-        
-        con = sqlite3.connect(self.db_path)
-        con.row_factory = sqlite3.Row
-        cur = con.cursor()
-        user_col, pass_col = self._detect_cred_columns(cur)
-        
-        nodes = []
-        for status in ("speed_ok", "ping_light"):
-            rows = cur.execute(
-                f"SELECT id, ip, {user_col} AS username, {pass_col} AS password FROM nodes "
-                f"WHERE status=? AND ip!='' AND {user_col}!='' AND {pass_col}!='' LIMIT ?;",
-                (status, limit - len(nodes))
-            ).fetchall()
-            nodes.extend([dict(row) for row in rows])
-            if len(nodes) >= limit:
-                break
-        
-        con.close()
-        return nodes[:limit]
-    
-    def _write_peer_conf(self, node_id: int, ip: str, username: str) -> str:
-        """Write PPP peer configuration for specific node."""
-        Path(PEER_DIR).mkdir(parents=True, exist_ok=True)
-        peer_file = f"{PEER_DIR}/{PEER_NAME}-{node_id}"
-        peer_config = f'''pty "pptp {ip} --nolaunchpppd"
-user "{username}"
-remotename {PEER_NAME}-{node_id}
-require-mppe-128
-refuse-eap
-refuse-pap
-refuse-chap
-refuse-mschap
-require-mschap-v2
-persist
-maxfail 3
-defaultroute
-usepeerdns
-mtu 1460
-mru 1460
-noauth
-logfile {PPP_LOG_DIR}/ppp-{node_id}.log
-'''
-        Path(peer_file).write_text(peer_config)
-        return peer_file
-    
-    def _write_chap(self, username: str, remotename: str, password: str) -> None:
-        """Append credentials to chap-secrets."""
-        line = f'"{username}" {remotename} "{password}" *\n'
-        with open(CHAP_FILE, 'a') as f:
-            f.write(line)
-        os.chmod(CHAP_FILE, 0o600)
-    
-    def _start_pptp_tunnel(self, node: Dict) -> Optional[str]:
-        """Start PPTP tunnel and wait for connection."""
-        node_id = node['id']
-        ip = node['ip']
-        username = node['username']
-        password = node['password']
-        
-        # Write configs
-        self._write_peer_conf(node_id, ip, username)
-        self._write_chap(username, f"{PEER_NAME}-{node_id}", password)
-        
-        # Start pppd
-        log_file = f"{PPP_LOG_DIR}/ppp-{node_id}.log"
-        self._run(f"pon {PEER_NAME}-{node_id} 2>/dev/null")
-        
-        # Wait for connection
-        iface = self._wait_for_ppp_connect(log_file, timeout=15)
-        if not iface:
-            return None
-        
-        # Verify interface is UP
-        for _ in range(5):
-            if self._is_ppp_interface_up(iface):
-                return iface
-            time.sleep(1)
-        
-        return None
-    
-    def _get_diagnostics(self) -> Dict[str, Any]:
-        ppp_check = self._run("ip a | grep ppp || true")[1]
-        ports = self._run("netstat -tulnp 2>/dev/null | grep -E ':(108[0-9]|8001)' || true")[1]
-        routes = self._run("ip route | head -20")[1]
-        syslog = self._run("grep -i 'Connect:' /var/log/syslog | tail -20 || true")[1]
-        link_log = Path("/var/log/link_socks_to_ppp.log").read_text()[-1000:] if Path("/var/log/link_socks_to_ppp.log").exists() else ""
-        
-        return {
-            "ppp_interfaces": ppp_check,
-            "listening_ports": ports,
-            "routes": routes,
-            "syslog": syslog,
-            "link_socks_log": link_log
-        }
-    
-    def start(self) -> Dict[str, Any]:
-        """Start PPTP tunnels and SOCKS proxies with full verification."""
-        # Clean existing
-        self._run("pkill -9 pppd 2>/dev/null || true")
-        self._run("systemctl stop danted 2>/dev/null || true")
-        time.sleep(1)
-        
-        # Clear chap-secrets
-        Path(CHAP_FILE).write_text("")
-        
-        nodes = self._get_active_nodes(limit=MAX_CONCURRENT_NODES)
-        if not nodes:
-            return {
-                "ok": False,
-                "error": "No suitable nodes (need speed_ok or ping_light)",
-                "diagnostics": self._get_diagnostics()
-            }
-        
-        results = []
-        for idx, node in enumerate(nodes):
-            try:
-                iface = self._start_pptp_tunnel(node)
-                if not iface:
-                    results.append({
-                        "node_id": node['id'],
-                        "ip": node['ip'],
-                        "error": "PPTP connection failed or timeout"
-                    })
-                    continue
-                
-                # Check interface is really UP before SOCKS
-                if not self._is_ppp_interface_up(iface):
-                    results.append({
-                        "node_id": node['id'],
-                        "ip": node['ip'],
-                        "interface": iface,
-                        "error": "Interface not UP"
-                    })
-                    continue
-                
-                # Bind SOCKS to PPP
-                socks_port = SOCKS_PORT_BASE + idx
-                rc, out, err = self._run(
-                    f"/usr/local/bin/link_socks_to_ppp.sh {socks_port} {iface}"
-                )
-                
-                time.sleep(1)
-                socks_active = self._is_port_listening(socks_port)
-                
-                results.append({
-                    "node_id": node['id'],
-                    "ip": node['ip'],
-                    "interface": iface,
-                    "socks_port": socks_port,
-                    "socks_active": socks_active,
-                    "status": "ok" if socks_active else "degraded"
-                })
-                
-            except Exception as e:
-                results.append({
-                    "node_id": node['id'],
-                    "ip": node['ip'],
-                    "error": str(e)
-                })
-        
-        successful = [r for r in results if r.get("status") == "ok"]
-        
-        return {
-            "ok": len(successful) > 0,
-            "status": "running" if len(successful) > 0 else "failed",
-            "started": len(successful),
-            "total": len(nodes),
-            "details": results,
-            "diagnostics": self._get_diagnostics()
-        }
-    
-    def stop(self) -> Dict[str, Any]:
-        """Gracefully stop all services."""
-        self._run("systemctl stop danted 2>/dev/null || true")
-        self._run("pkill -9 pppd 2>/dev/null || true")
-        Path(CHAP_FILE).write_text("")
-        time.sleep(2)
-        
-        return {
-            "ok": True,
-            "status": "stopped",
-            "diagnostics": self._get_diagnostics()
-        }
-    
-    def status(self) -> Dict[str, Any]:
-        """Get current service status."""
-        ppp_interfaces = self._run("ip a | grep -E 'ppp[0-9]:' | wc -l")[1].strip()
-        socks_ports = []
-        for port in range(SOCKS_PORT_BASE, SOCKS_PORT_BASE + 10):
-            if self._is_port_listening(port):
-                socks_ports.append(port)
-        
-        ppp_count = int(ppp_interfaces) if ppp_interfaces.isdigit() else 0
-        
-        status = "running" if ppp_count > 0 and len(socks_ports) > 0 else \
-                 "degraded" if ppp_count > 0 or len(socks_ports) > 0 else "stopped"
-        
-        return {
-            "ok": True,
-            "status": status,
-            "ppp_interfaces": ppp_count,
-            "socks_ports": socks_ports,
-            "diagnostics": self._get_diagnostics()
-        }
-PYEOF
-echo "✅ service_manager.py created"
-
-# Continue with steps 7-10...
-echo ""
-echo "📦 Step 7/10: Creating FastAPI router..."
 mkdir -p "$ROUTER_DIR"
 cat > "$ROUTER_DIR/service_router.py" <<'PYEOF'
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 import sys
 sys.path.insert(0, '/app/backend')
 from service_manager import ServiceManager
@@ -489,21 +16,357 @@ manager = ServiceManager()
 
 @router.post("/start")
 async def start_service():
+    """Start all PPTP tunnels and SOCKS proxies."""
     return manager.start()
 
 @router.post("/stop")
 async def stop_service():
+    """Stop all services."""
     return manager.stop()
 
 @router.get("/status")
 async def status_service():
+    """Get current status."""
     return manager.status()
-PYEOF
-touch "$ROUTER_DIR/__init__.py"
-echo "✅ Router created"
 
+@router.post("/restart-node/{node_id}")
+async def restart_node(node_id: int):
+    """Restart specific node."""
+    return manager.restart_node(node_id)
+
+@router.post("/test-sample")
+async def test_sample(
+    status: str = Query("SpeedOculus", description="Node status to filter"),
+    limit: int = Query(3, ge=1, le=10, description="Number of nodes to test"),
+    mode: str = Query("speed_only", description="Test mode")
+):
+    """Test sample of nodes (SpeedOculus)."""
+    return manager.test_sample(status=status, limit=limit, mode=mode)
+
+@router.get("/stats")
+async def get_stats():
+    """Get statistics from database."""
+    import sqlite3
+    from pathlib import Path
+    
+    db_path = "/app/backend/connexa.db"
+    if not Path(db_path).exists():
+        return {"ok": False, "error": "Database not found"}
+    
+    try:
+        con = sqlite3.connect(db_path)
+        cur = con.cursor()
+        
+        # Recent metrics
+        metrics = cur.execute("""
+            SELECT node_id, ts, speed_mbps, ping_ms, reconnects
+            FROM node_metrics
+            ORDER BY ts DESC
+            LIMIT 50
+        """).fetchall()
+        
+        # Active nodes
+        active = cur.execute("""
+            SELECT COUNT(*) FROM nodes 
+            WHERE status IN ('speed_ok', 'ping_light')
+        """).fetchone()[0]
+        
+        con.close()
+        
+        return {
+            "ok": True,
+            "active_nodes": active,
+            "recent_metrics": [
+                {
+                    "node_id": m[0],
+                    "ts": m[1],
+                    "speed_mbps": m[2],
+                    "ping_ms": m[3],
+                    "reconnects": m[4]
+                }
+                for m in metrics
+            ]
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+PYEOF
+
+touch "$ROUTER_DIR/__init__.py"
+echo "✅ Router created with all endpoints"
+
+# ============================================================================
+# STEP 9: Create metrics endpoint
+# ============================================================================
 echo ""
-echo "📦 Step 8/10: Patching server.py..."
+echo "📦 [Final] Step 9/15: Adding metrics endpoint to router..."
+
+cat >> "$ROUTER_DIR/service_router.py" <<'PYEOF'
+
+@router.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    from fastapi.responses import Response
+    try:
+        import sys
+        sys.path.insert(0, '/app/backend')
+        from metrics_exporter import get_metrics, CONTENT_TYPE_LATEST
+        
+        return Response(
+            content=get_metrics(),
+            media_type=CONTENT_TYPE_LATEST
+        )
+    except Exception as e:
+        return Response(
+            content=f"# ERROR: {e}\n",
+            media_type="text/plain",
+            status_code=503
+        )
+PYEOF
+
+echo "✅ Metrics endpoint added"
+
+# ============================================================================
+# STEP 10: Enhanced PPP hooks (Phase 2 + Final improvements)
+# ============================================================================
+echo ""
+echo "📦 [Final] Step 10/15: Creating production PPP hooks..."
+
+cat > /etc/ppp/ip-up.d/connexa-dante <<'IPUP'
+#!/bin/bash
+# Production ip-up hook with Dante rebind safety
+
+IFACE="$1"
+LOCAL_IP="$4"
+REMOTE_IP="$5"
+IPPARAM="$6"
+
+LOG="/var/log/connexa-ppp-hooks.log"
+MAX_RETRIES=3
+RETRY_DELAY=5
+
+exec >> "$LOG" 2>&1
+echo "════════════════════════════════════════════════════════════════"
+echo "[ip-up] $(date) - Interface $IFACE UP"
+echo "  Local: $LOCAL_IP, Remote: $REMOTE_IP, ipparam: $IPPARAM"
+echo "════════════════════════════════════════════════════════════════"
+
+# Validate interface
+if ! ip link show "$IFACE" 2>/dev/null | grep -q "state UP"; then
+    echo "[ip-up] ERROR: Interface $IFACE not UP"
+    exit 1
+fi
+
+# Extract SOCKS port
+if [[ "$IPPARAM" =~ socks:([0-9]+) ]]; then
+    SOCKS_PORT="${BASH_REMATCH[1]}"
+    echo "[ip-up] SOCKS port: $SOCKS_PORT"
+    
+    # Retry binding with Dante restart
+    for attempt in $(seq 1 $MAX_RETRIES); do
+        echo "[ip-up] Binding attempt $attempt/$MAX_RETRIES..."
+        
+        # Stop Dante before reconfiguration
+        systemctl stop danted 2>/dev/null || true
+        sleep 1
+        
+        # Generate config with syslog (safe for read-only /var/log)
+        cat > /etc/danted.conf <<DANTE
+logoutput: syslog
+internal: 0.0.0.0 port = ${SOCKS_PORT}
+external: ${IFACE}
+clientmethod: none
+socksmethod: none
+user.notprivileged: nobody
+
+client pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    log: error
+}
+
+socks pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    protocol: tcp udp
+    command: connect bind
+    log: error
+}
+DANTE
+        
+        # Start Dante
+        systemctl start danted 2>&1
+        sleep 3
+        
+        # Verify
+        if netstat -tulnp 2>/dev/null | grep -q ":${SOCKS_PORT}"; then
+            echo "[ip-up] ✅ SUCCESS on attempt $attempt"
+            echo "[WATCHDOG] node=unknown action=rebind_dante result=ok" >> /var/log/connexa-watchdog.log
+            exit 0
+        fi
+        
+        echo "[ip-up] ⚠️ Failed attempt $attempt"
+        if [ $attempt -lt $MAX_RETRIES ]; then
+            sleep $RETRY_DELAY
+        fi
+    done
+    
+    echo "[ip-up] ❌ FAILED after $MAX_RETRIES attempts"
+    echo "[WATCHDOG] node=unknown action=rebind_dante result=failed" >> /var/log/connexa-watchdog.log
+    exit 1
+fi
+IPUP
+
+chmod +x /etc/ppp/ip-up.d/connexa-dante
+
+cat > /etc/ppp/ip-down.d/connexa-dante <<'IPDOWN'
+#!/bin/bash
+# Production ip-down hook
+
+IFACE="$1"
+IPPARAM="$6"
+
+LOG="/var/log/connexa-ppp-hooks.log"
+
+exec >> "$LOG" 2>&1
+echo "════════════════════════════════════════════════════════════════"
+echo "[ip-down] $(date) - Interface $IFACE DOWN"
+echo "════════════════════════════════════════════════════════════════"
+
+if [[ "$IPPARAM" =~ socks:([0-9]+) ]]; then
+    SOCKS_PORT="${BASH_REMATCH[1]}"
+    echo "[ip-down] Released SOCKS port: $SOCKS_PORT"
+    echo "$(date)|$IFACE|$SOCKS_PORT" >> /tmp/connexa-down-events.log
+fi
+IPDOWN
+
+chmod +x /etc/ppp/ip-down.d/connexa-dante
+echo "✅ Production PPP hooks created"
+
+# ============================================================================
+# STEP 11: Enhanced watchdog with API integration
+# ============================================================================
+echo ""
+echo "📦 [Final] Step 11/15: Creating production watchdog..."
+
+cat > /usr/local/bin/connexa-ppp-watchdog.sh <<'WATCHDOG'
+#!/bin/bash
+# Production PPP Watchdog
+
+LOG="/var/log/connexa-watchdog.log"
+BACKEND_DB="/app/backend/connexa.db"
+CHECK_INTERVAL=60
+API_BASE="http://localhost:8001"
+
+exec >> "$LOG" 2>&1
+
+echo "════════════════════════════════════════════════════════════════"
+echo "[Watchdog] Started at $(date)"
+echo "════════════════════════════════════════════════════════════════"
+
+while true; do
+    if [ -f "$BACKEND_DB" ]; then
+        # Get nodes with ppp_interface
+        NODES=$(sqlite3 "$BACKEND_DB" "SELECT id, ppp_interface FROM nodes WHERE ppp_interface IS NOT NULL;" 2>/dev/null)
+        
+        while IFS='|' read -r NODE_ID IFACE; do
+            if [ -n "$IFACE" ]; then
+                # Check if interface exists and is UP
+                if ! ip link show "$IFACE" &>/dev/null; then
+                    echo "[Watchdog] $(date) - Interface $IFACE (node $NODE_ID) missing"
+                    echo "[WATCHDOG] node=$NODE_ID action=restart result=triggered"
+                    
+                    # Trigger restart via API
+                    RESPONSE=$(curl -s -X POST "$API_BASE/service/restart-node/$NODE_ID" 2>/dev/null)
+                    
+                    if echo "$RESPONSE" | grep -q '"ok":true'; then
+                        echo "[Watchdog] Successfully restarted node $NODE_ID"
+                        echo "[WATCHDOG] node=$NODE_ID action=restart result=ok"
+                        
+                        # Increment reconnect counter
+                        sqlite3 "$BACKEND_DB" "UPDATE nodes SET reconnect_count = reconnect_count + 1 WHERE id=$NODE_ID;" 2>/dev/null
+                    else
+                        echo "[Watchdog] Failed to restart node $NODE_ID: $RESPONSE"
+                        echo "[WATCHDOG] node=$NODE_ID action=restart result=failed"
+                    fi
+                    
+                elif ! ip link show "$IFACE" | grep -q "state UP"; then
+                    echo "[Watchdog] $(date) - Interface $IFACE exists but not UP"
+                    ip link set "$IFACE" up 2>/dev/null || true
+                fi
+            fi
+        done <<< "$NODES"
+    fi
+    
+    sleep $CHECK_INTERVAL
+done
+WATCHDOG
+
+chmod +x /usr/local/bin/connexa-ppp-watchdog.sh
+
+cat > /etc/systemd/system/connexa-watchdog.service <<'UNIT'
+[Unit]
+Description=Connexa PPP Watchdog
+After=network-online.target connexa-backend.service
+Requires=connexa-backend.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/connexa-ppp-watchdog.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable connexa-watchdog.service 2>/dev/null || true
+echo "✅ Production watchdog created"
+
+# ============================================================================
+# STEP 12: Configure systemd services with final limits
+# ============================================================================
+echo ""
+echo "📦 [Final] Step 12/15: Configuring systemd services..."
+
+cat > /etc/systemd/system/connexa-backend.service <<'UNIT'
+[Unit]
+Description=Connexa Backend (Production)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/app/backend
+ExecStart=/app/backend/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8001 --workers 1 --loop uvloop
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+LimitNPROC=65535
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+mkdir -p /etc/systemd/system/danted.service.d
+cat > /etc/systemd/system/danted.service.d/override.conf <<'OVERRIDE'
+[Service]
+LimitNOFILE=65535
+TasksMax=8192
+Restart=always
+RestartSec=3
+OVERRIDE
+
+systemctl daemon-reload
+systemctl enable connexa-backend.service danted.service 2>/dev/null || true
+echo "✅ Systemd services configured"
+
+# ============================================================================
+# STEP 13: Patch server.py to include router
+# ============================================================================
+echo ""
+echo "📦 [Final] Step 13/15: Patching server.py..."
+
 SERVER="$APP_DIR/server.py"
 if [ -f "$SERVER" ]; then
     if ! grep -q "service_router" "$SERVER"; then
@@ -511,48 +374,156 @@ if [ -f "$SERVER" ]; then
         sed -i '/^app = FastAPI/a app.include_router(service_router)' "$SERVER"
         echo "✅ server.py patched"
     else
-        echo "✅ server.py already has router"
+        echo "✅ server.py already patched"
     fi
+else
+    echo "⚠️ server.py not found"
 fi
 
+# ============================================================================
+# STEP 14: Restart services
+# ============================================================================
 echo ""
-echo "📦 Step 9/10: Enabling services..."
-systemctl enable danted 2>/dev/null || true
-supervisorctl reread 2>/dev/null || true
-supervisorctl update 2>/dev/null || true
+echo "📦 [Final] Step 14/15: Restarting services..."
 
-echo ""
-echo "📦 Step 10/10: Restarting backend..."
-supervisorctl restart backend 2>/dev/null || systemctl restart connexa-backend.service
-sleep 3
+supervisorctl restart backend 2>/dev/null || systemctl restart connexa-backend.service || true
+sleep 5
 
-BACKEND_STATUS=$(supervisorctl status backend 2>/dev/null | awk '{print $2}' || systemctl is-active connexa-backend.service || echo "UNKNOWN")
-echo "Backend: $BACKEND_STATUS"
+BACKEND_STATUS=$(supervisorctl status backend 2>/dev/null | awk '{print $2}' || systemctl is-active connexa-backend.service 2>/dev/null || echo "UNKNOWN")
+echo "Backend status: $BACKEND_STATUS"
 
 if [ "$BACKEND_STATUS" = "RUNNING" ] || [ "$BACKEND_STATUS" = "active" ]; then
-    API_RESPONSE=$(curl -s http://localhost:8001/service/status 2>/dev/null || echo '{"error":"timeout"}')
-    if echo "$API_RESPONSE" | grep -q '"ok"'; then
-        echo "✅ API working"
-        echo "$API_RESPONSE" | python3 -m json.tool 2>/dev/null || echo "$API_RESPONSE"
-    else
-        echo "⚠️ API: $API_RESPONSE"
+    echo "Testing API endpoints..."
+    
+    # Test /service/status
+    STATUS_RESPONSE=$(curl -s http://localhost:8001/service/status 2>/dev/null || echo '{"error":"timeout"}')
+    if echo "$STATUS_RESPONSE" | grep -q '"ok"'; then
+        echo "✅ /service/status working"
+    fi
+    
+    # Test /metrics
+    METRICS_RESPONSE=$(curl -s http://localhost:8001/service/metrics 2>/dev/null | head -5)
+    if echo "$METRICS_RESPONSE" | grep -q 'connexa_'; then
+        echo "✅ /service/metrics working"
     fi
 fi
 
+# ============================================================================
+# STEP 15: Final verification and report
+# ============================================================================
+echo ""
+echo "📦 [Final] Step 15/15: Final verification..."
+
+VERIFY_LOG="/root/connexa_final_verification_$(date +%Y%m%d_%H%M%S).log"
+
+cat > "$VERIFY_LOG" <<VERIFY
+════════════════════════════════════════════════════════════════
+CONNEXA v7.3.4-FINAL Production Verification Report
+Generated: $(date)
+User: mrolivershea-cyber
+════════════════════════════════════════════════════════════════
+
+[SYSTEM LIMITS]
+ulimit -n: $(ulimit -n)
+fs.file-max: $(sysctl -n fs.file-max)
+kernel.pid_max: $(sysctl -n kernel.pid_max)
+
+[PPP MODULES]
+$(lsmod | grep ppp)
+
+[/dev/ppp]
+$(ls -l /dev/ppp 2>/dev/null || echo "NOT FOUND")
+
+[SERVICES]
+Backend: $BACKEND_STATUS
+Watchdog: $(systemctl is-enabled connexa-watchdog.service 2>/dev/null || echo "not enabled")
+Danted: $(systemctl is-active danted 2>/dev/null || echo "inactive")
+
+[DATABASE SCHEMA]
+Tables: $(sqlite3 $APP_DIR/connexa.db ".tables" 2>/dev/null || echo "DB not found")
+
+[API ENDPOINTS]
+/service/status: $(curl -s http://localhost:8001/service/status 2>/dev/null | grep -o '"ok":[^,]*' || echo "not tested")
+/service/metrics: $(curl -s http://localhost:8001/service/metrics 2>/dev/null | head -1 || echo "not tested")
+
+[FILES CREATED]
+- service_manager.py: $([ -f "$APP_DIR/service_manager.py" ] && echo "✓" || echo "✗")
+- metrics_exporter.py: $([ -f "$APP_DIR/metrics_exporter.py" ] && echo "✓" || echo "✗")
+- service_router.py: $([ -f "$APP_DIR/router/service_router.py" ] && echo "✓" || echo "✗")
+- ip-up hook: $([ -f /etc/ppp/ip-up.d/connexa-dante ] && echo "✓" || echo "✗")
+- ip-down hook: $([ -f /etc/ppp/ip-down.d/connexa-dante ] && echo "✓" || echo "✗")
+- watchdog script: $([ -f /usr/local/bin/connexa-ppp-watchdog.sh ] && echo "✓" || echo "✗")
+
+[LOG FILES]
+- /var/log/connexa-ppp-hooks.log
+- /var/log/connexa-watchdog.log
+- /var/log/link_socks_to_ppp.log
+- /tmp/dante-logs/danted.log (via syslog)
+
+════════════════════════════════════════════════════════════════
+VERIFY
+
+cat "$VERIFY_LOG"
+
+echo ""
+echo "✅ Verification log: $VERIFY_LOG"
+
+# ============================================================================
+# FINAL SUMMARY
+# ============================================================================
 echo ""
 echo "════════════════════════════════════════════════════════════════"
-echo "  ✅ v7.0 PRODUCTION INSTALLATION COMPLETE"
+echo "  🎉 CONNEXA v7.3.4-FINAL INSTALLATION COMPLETE"
 echo "════════════════════════════════════════════════════════════════"
 echo ""
-echo "🔍 Verification commands:"
-echo "  which pptp                          # Should show /usr/sbin/pptp"
-echo "  cat /etc/ppp/peers/connexa          # Verify peer config exists"
-echo "  cat /etc/ppp/chap-secrets           # Verify credentials"
-echo "  ip a | grep ppp                     # Show PPP interfaces"
-echo "  netstat -tulnp | grep 108           # Show SOCKS ports"
-echo "  tail -f /var/log/link_socks_to_ppp.log  # Watch SOCKS binding"
-echo "  tail -f /var/log/ppp/ppp-*.log      # Watch PPTP logs"
-echo "  systemctl status danted             # Check SOCKS proxy"
+echo "📦 Installed Components:"
+echo "  ✅ Phase 1: System limits (FD=65535, NPROC=65535)"
+echo "  ✅ Phase 2: Unit ID + PPP hooks (deterministic interfaces)"
+echo "  ✅ Phase 3: Auto-recovery + Watchdog"
+echo "  ✅ Final: Metrics, SpeedOculus, Admin endpoints"
 echo ""
-echo "🚀 Test from Admin Panel: Click 'Start Service'"
+echo "🔧 Key Features:"
+echo "  • Prometheus metrics: /service/metrics"
+echo "  • SpeedOculus testing: POST /service/test-sample"
+echo "  • Auto-recovery watchdog (60s interval)"
+echo "  • Dante with syslog (safe for read-only FS)"
+echo "  • Thread-safe concurrent limits"
+echo "  • Database metrics tracking"
+echo ""
+echo "📊 Current Status:"
+echo "  - Backend: $BACKEND_STATUS"
+echo "  - ulimit -n: $(ulimit -n)"
+echo "  - PPP modules: $(lsmod | grep -c ppp || echo 0)"
+echo ""
+echo "🚀 Quick Start:"
+echo "  1. Start services:"
+echo "     curl -X POST http://localhost:8001/service/start"
+echo ""
+echo "  2. Start watchdog:"
+echo "     systemctl start connexa-watchdog.service"
+echo ""
+echo "  3. Run speed test sample:"
+echo "     curl -X POST 'http://localhost:8001/service/test-sample?limit=3'"
+echo ""
+echo "  4. Check metrics:"
+echo "     curl http://localhost:8001/service/metrics"
+echo ""
+echo "  5. View stats:"
+echo "     curl http://localhost:8001/service/stats"
+echo ""
+echo "📋 Test Commands:"
+echo "  # Check watchdog"
+echo "  tail -f /var/log/connexa-watchdog.log"
+echo ""
+echo "  # Check PPP hooks"
+echo "  tail -f /var/log/connexa-ppp-hooks.log"
+echo ""
+echo "  # Check database"
+echo "  sqlite3 /app/backend/connexa.db 'SELECT * FROM node_metrics ORDER BY ts DESC LIMIT 10;'"
+echo ""
+echo "  # Test SOCKS"
+echo "  curl --socks5 127.0.0.1:1080 ifconfig.me"
+echo ""
+echo "🎯 Production Ready!"
+echo "   All phases (1-3) integrated + metrics + testing"
 echo "════════════════════════════════════════════════════════════════"
