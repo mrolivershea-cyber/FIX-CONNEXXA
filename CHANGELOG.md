@@ -2,6 +2,64 @@
 
 All notable changes to this project will be documented in this file.
 
+## [7.4.8] - 2025-10-30
+
+### 🎯 Multi-Tunnel Authentication Fix
+
+Based on production diagnostics showing ppp1/ppp2 authentication failures.
+
+### Added
+- 🧩 **Base peers template** - `/etc/ppp/peers/connexa` now auto-created on initialization
+- 🔧 **Multi-tunnel support** - Proper MSCHAP-V2 configuration for all tunnel instances
+- 🛡️ **Graceful error handling** - Permission errors logged as warnings in test environments
+
+### Fixed
+- 🧩 **Multi-tunnel authentication** - ppp1, ppp2, etc. now authenticate properly
+- 🔐 **LCP termination** - "peer refused to authenticate" resolved for secondary tunnels
+- 📋 **Base template missing** - `pppd call connexa` now has proper default configuration
+
+### Changed
+- 📦 Updated all version strings from v7.4.7 to v7.4.8
+- 🏗️ Base peers template created during PPTPTunnelManager initialization
+- ⚙️ Individual node configs (connexa-node-{id}) now override base template settings
+
+### Technical Details
+
+The base `/etc/ppp/peers/connexa` template includes:
+- `require-mschap-v2` - Enforce MSCHAP-V2 authentication
+- `refuse-pap`, `refuse-eap`, `refuse-chap` - Disable weaker auth methods
+- `noauth` - Don't require peer authentication
+- `persist`, `holdoff 5`, `maxfail 3` - Auto-reconnect behavior
+- `mtu 1400`, `mru 1400` - Proper MTU/MRU for PPTP
+- `defaultroute`, `usepeerdns` - Network configuration
+
+Individual tunnel configs (connexa-node-{id}) supplement with:
+- `name {username}` - Local username
+- `remotename connexa-node-{node_id}` - Remote identifier
+- `connect "/usr/sbin/pptp {node_ip} --nolaunchpppd"` - Connection command
+- `user {username}` - Authentication username
+
+### Installation
+```bash
+bash install_connexa_v7_4_8_patch.sh
+```
+
+### Verification
+```bash
+# Check base template exists
+ls -la /etc/ppp/peers/connexa
+
+# Verify authentication works for all tunnels
+pppd call connexa-node-1 &
+pppd call connexa-node-2 &
+pppd call connexa-node-3 &
+
+# Check all interfaces are UP
+ip link show | grep ppp
+```
+
+---
+
 ## [7.4.7] - 2025-10-30
 
 ### 🎯 Stability and PPTP Authentication Fixes
