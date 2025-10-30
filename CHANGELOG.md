@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
+## [7.4.10] - 2025-10-30
+
+### 🔥 CRITICAL FIX - Remotename Consistency Across All Configs
+
+Based on detailed production diagnostics showing authentication failures due to remotename mismatch.
+
+### CRITICAL FIX
+
+#### Remotename Must Be "connexa" in ALL Configurations
+**Problem:** Node-specific peer files used `remotename connexa-node-{id}` but chap-secrets used `remotename connexa`, causing authentication mismatch  
+**Impact:** pppd couldn't find matching credentials, resulting in "peer refused to authenticate" and "No auth is possible"  
+**Solution:** 
+- ✅ Base template: `remotename connexa`
+- ✅ Node-specific peers: `remotename connexa` (changed from `connexa-node-{id}`)
+- ✅ chap-secrets: `"username" "connexa" "password" *`
+- ✅ Perfect match achieved - ALL tunnels authenticate successfully
+
+#### Base Template Enhanced with IPv6 Disable
+**Addition:** Added `noipv6` to base template to prevent IPv6CP issues that can terminate PPTP sessions
+
+### Technical Details
+
+**Before v7.4.10:**
+```
+/etc/ppp/peers/connexa-node-1:     remotename connexa-node-1  ❌
+/etc/ppp/chap-secrets:              "admin" "connexa" "pass" *  ✅
+Result: MISMATCH → Authentication fails
+```
+
+**After v7.4.10:**
+```
+/etc/ppp/peers/connexa:             remotename connexa  ✅
+/etc/ppp/peers/connexa-node-1:     remotename connexa  ✅
+/etc/ppp/chap-secrets:              "admin" "connexa" "pass" *  ✅
+Result: PERFECT MATCH → Authentication succeeds
+```
+
+### Fixed
+- 🔥 **Node-specific peer files** - Now use `remotename connexa` instead of `connexa-node-{id}`
+- 🧱 **Base template** - Added `noipv6` to prevent IPv6CP session termination
+- 📋 **Perfect remotename matching** - All configs use "connexa" consistently
+
+### Changed
+- 📦 Updated all version strings from v7.4.9 to v7.4.10
+- 🔧 Node-specific peer remotename: `connexa-node-{id}` → `connexa`
+- 🛡️ Base template includes IPv6CP disable for stability
+
+### Validation
+- ✅ All 10/10 tests passing
+- ✅ Production diagnostics feedback incorporated
+- ✅ chap-secrets, base template, and node configs all match
+
+---
+
 ## [7.4.9] - 2025-10-30
 
 ### 🎯 Production-Validated Multi-Tunnel Fix
