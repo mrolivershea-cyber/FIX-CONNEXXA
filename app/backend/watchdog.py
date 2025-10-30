@@ -1,5 +1,5 @@
 """
-CONNEXA v7.4.10 - Watchdog Monitor
+CONNEXA v7.5.3 - Watchdog Monitor
 Monitors PPP interfaces and auto-restarts backend on failures
 
 FIX #5: Watchdog auto-restart on zero PPP interfaces
@@ -7,11 +7,15 @@ v7.4.7: Enhanced monitoring and recovery logic
 v7.4.8: Improved stability for multi-tunnel scenarios
 v7.4.9: Production-validated multi-tunnel monitoring
 v7.4.10: Updated version tracking for consistency
+v7.5.0: Added startup delay and backend readiness check
+v7.5.1: Improved startup sequence with configurable delay
+v7.5.3: Enhanced startup delay, backend port verification before monitoring
 """
 import os
 import time
 import logging
 import subprocess
+import socket
 from pathlib import Path
 from typing import Dict, Any
 
@@ -30,18 +34,21 @@ class WatchdogMonitor:
     restart the backend via supervisorctl.
     """
     
-    def __init__(self, check_interval: int = 30):
+    def __init__(self, check_interval: int = 30, startup_delay: int = 10):
         """
         Initialize watchdog monitor.
         
         Args:
             check_interval: Seconds between checks (default: 30)
+            startup_delay: Seconds to wait before first check (default: 10)
         """
         self.check_interval = check_interval
+        self.startup_delay = startup_delay
         self.zero_ppp_count = 0
         self.consecutive_threshold = 3
-        self.version = "7.4.10"
-        logger.info(f"WatchdogMonitor v{self.version} initialized (check_interval={check_interval}s)")
+        self.version = "7.5.3"
+        self.backend_port = 8001
+        logger.info(f"WatchdogMonitor v{self.version} initialized (check_interval={check_interval}s, startup_delay={startup_delay}s)")
     
     def count_ppp_interfaces(self) -> int:
         """
@@ -157,13 +164,64 @@ class WatchdogMonitor:
                 "threshold_reached": False
             }
     
+    def check_backend_ready(self) -> bool:
+        """
+        Check if backend is ready by attempting to connect to port 8001.
+        
+        Returns:
+            True if backend is responsive on port 8001
+        """
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            result = sock.connect_ex(('127.0.0.1', self.backend_port))
+            sock.close()
+            return result == 0
+        except Exception as e:
+            logger.debug(f"Backend readiness check failed: {e}")
+            return False
+    
+    def wait_for_backend(self, max_wait: int = 30) -> bool:
+        """
+        Wait for backend to become ready.
+        
+        Args:
+            max_wait: Maximum seconds to wait for backend
+            
+        Returns:
+            True if backend became ready within max_wait
+        """
+        logger.info(f"Waiting up to {max_wait}s for backend to be ready on port {self.backend_port}...")
+        
+        start_time = time.time()
+        while time.time() - start_time < max_wait:
+            if self.check_backend_ready():
+                elapsed = int(time.time() - start_time)
+                logger.info(f"✅ Backend is ready after {elapsed}s")
+                return True
+            time.sleep(1)
+        
+        logger.warning(f"⚠️ Backend not ready after {max_wait}s, proceeding anyway")
+        return False
+    
     def run_forever(self):
         """
         Run watchdog monitor in continuous loop.
         
         This method runs indefinitely, checking PPP interfaces
         at regular intervals and auto-recovering when needed.
+        
+        v7.5.3: Added startup delay and backend readiness check
         """
+        logger.info(f"Watchdog starting with {self.startup_delay}s startup delay...")
+        
+        # Wait for backend to initialize
+        if self.startup_delay > 0:
+            time.sleep(self.startup_delay)
+        
+        # Verify backend is ready before monitoring
+        self.wait_for_backend(max_wait=30)
+        
         logger.info("Starting watchdog monitor loop...")
         
         try:
@@ -215,12 +273,18 @@ def main():
     """Main entry point for running watchdog as standalone script."""
     import argparse
     
-    parser = argparse.ArgumentParser(description='CONNEXA Watchdog Monitor v7.4.6')
+    parser = argparse.ArgumentParser(description='CONNEXA Watchdog Monitor v7.5.3')
     parser.add_argument(
         '--interval',
         type=int,
         default=30,
         help='Check interval in seconds (default: 30)'
+    )
+    parser.add_argument(
+        '--startup-delay',
+        type=int,
+        default=10,
+        help='Startup delay in seconds before first check (default: 10)'
     )
     parser.add_argument(
         '--once',
@@ -230,7 +294,7 @@ def main():
     
     args = parser.parse_args()
     
-    monitor = WatchdogMonitor(check_interval=args.interval)
+    monitor = WatchdogMonitor(check_interval=args.interval, startup_delay=args.startup_delay)
     
     if args.once:
         status = monitor.check_and_recover()
