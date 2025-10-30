@@ -1,77 +1,48 @@
-# FIX-CONNEXXA
+# FIX-CONNEXXA - Service Manager Module
 
-## Installation
+## Features
+- Auto node selection
+- PPTP tunnel
+- SOCKS proxy
+- Idempotent
+- Diagnostics
 
-To install the application, run the following command:
-
-```bash
-npm install
-```
-
-## API Endpoints
-
-### List Users
+## One-Command Installation
+To install the Service Manager module, run the following command:
 
 ```bash
-curl -X GET http://your-api-url.com/api/users
+curl -O https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/main/install_service_manager.sh && bash install_service_manager.sh
 ```
 
-### Create User
-
-```bash
-curl -X POST http://your-api-url.com/api/users -H "Content-Type: application/json" -d '{"name": "John Doe", "email": "john@example.com"}'
-```
-
-### Update User
-
-```bash
-curl -X PUT http://your-api-url.com/api/users/{id} -H "Content-Type: application/json" -d '{"name": "Jane Doe"}'
-```
-
-### Delete User
-
-```bash
-curl -X DELETE http://your-api-url.com/api/users/{id}
-```
+## API Endpoints Documentation
+- **POST /api/service/start**
+  - **Example Response:** 200 OK
+- **POST /api/service/stop**
+  - **Example Response:** 200 OK
+- **GET /api/service/status**
+  - **Example Response:** 200 OK, {"status": "running"}
 
 ## System Requirements
+- SQLite database
+- Nodes table with `speed_ok` status
+- `pptp-linux` and `ppp` packages
 
-- Node.js version >= 12.x
-- npm version >= 6.x
-- MongoDB version >= 4.x
+## Troubleshooting
+- Ensure that the SQLite database is correctly configured.
+- Verify that the nodes table is populated with valid entries.
+- Check the logs for any error messages.
 
-## Troubleshooting Guide
-
-- **Error: ENOENT** - This error indicates that a file or directory was not found. Ensure all required files are in place.
-
-- **Error: EACCES** - This error indicates that permission is denied. Make sure you have the necessary permissions to access the files.
-
-## File Structure Overview
-
-```
-/FIX-CONNEXXA
-|-- /src
-|   |-- /controllers
-|   |-- /models
-|   |-- /routes
-|   |-- /middlewares
-|-- /tests
-|-- package.json
-|-- server.js
-```
+## File Structure
+- `/src`: Source code
+- `/tests`: Test scripts
+- `/docs`: Documentation
 
 ## Testing Commands
-
-To run the tests, use the following command:
+To run tests, use the following command:
 
 ```bash
-npm test
+pytest tests/
 ```
 
 ## Swagger UI
-
-You can access the Swagger UI documentation at:
-
-```
-http://your-api-url.com/api-docs
-```
+Access the Swagger UI at [http://localhost:8001/docs](http://localhost:8001/docs) to explore the API endpoints.
