@@ -9,6 +9,28 @@ echo "  Fixes: All 7 critical bugs (peer config, chap-secrets, watchdog, etc.)"
 echo "════════════════════════════════════════════════════════════════"
 
 # ============================================================================
+# Check for required commands
+# ============================================================================
+echo ""
+echo "📦 Checking for required commands..."
+
+MISSING_CMDS=""
+for cmd in python3 supervisorctl systemctl; do
+    if ! command -v $cmd &> /dev/null; then
+        MISSING_CMDS="$MISSING_CMDS $cmd"
+    fi
+done
+
+if [ -n "$MISSING_CMDS" ]; then
+    echo "⚠️  WARNING: The following commands are not found:$MISSING_CMDS"
+    echo "   The script may fail or skip some steps."
+    echo "   Press Ctrl+C to abort, or wait 5 seconds to continue..."
+    sleep 5
+fi
+
+echo "✅ Pre-flight check completed"
+
+# ============================================================================
 # STEP 1: Disable systemd unit (prevent port conflict - FIX #1)
 # ============================================================================
 echo ""
@@ -26,9 +48,22 @@ echo "📦 [Step 2/9] Checking port 8001..."
 pkill -9 -f "uvicorn.*8001" 2>/dev/null || true
 sleep 2
 
-if lsof -i :8001 2>/dev/null; then
+# Check if port is in use (use ss or lsof, whichever is available)
+PORT_IN_USE=0
+if command -v ss &> /dev/null; then
+    ss -lntp 2>/dev/null | grep -q ":8001" && PORT_IN_USE=1 || true
+elif command -v lsof &> /dev/null; then
+    lsof -i :8001 2>/dev/null && PORT_IN_USE=1 || true
+fi
+
+if [ "$PORT_IN_USE" -eq 1 ]; then
     echo "⚠️ Port 8001 still in use, forcing cleanup..."
-    fuser -k 8001/tcp 2>/dev/null || true
+    if command -v fuser &> /dev/null; then
+        fuser -k 8001/tcp 2>/dev/null || true
+    else
+        echo "   fuser not available, trying pkill again..."
+        pkill -9 -f ":8001" 2>/dev/null || true
+    fi
     sleep 2
 fi
 
@@ -690,11 +725,22 @@ echo "════════════════════════�
 
 echo ""
 echo "[1] Port 8001:"
-if ss -lntp 2>/dev/null | grep -q 8001; then
-    echo "✅ Backend listening on 8001"
-    ss -lntp | grep 8001
+if command -v ss &> /dev/null; then
+    if ss -lntp 2>/dev/null | grep -q 8001; then
+        echo "✅ Backend listening on 8001"
+        ss -lntp 2>/dev/null | grep 8001 || true
+    else
+        echo "⚠️ Backend not listening on 8001 (may need manual start)"
+    fi
+elif command -v netstat &> /dev/null; then
+    if netstat -tlnp 2>/dev/null | grep -q 8001; then
+        echo "✅ Backend listening on 8001"
+        netstat -tlnp 2>/dev/null | grep 8001 || true
+    else
+        echo "⚠️ Backend not listening on 8001 (may need manual start)"
+    fi
 else
-    echo "⚠️ Backend not listening on 8001 (may need manual start)"
+    echo "⚠️ Cannot check port (ss/netstat not available)"
 fi
 
 echo ""

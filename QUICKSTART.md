@@ -179,6 +179,43 @@ tail -f /var/log/supervisor/backend.out.log | grep "✅ Tunnel"
 
 ## Troubleshooting
 
+### Issue: "Command not found" when running installation script
+
+The installation script requires these commands:
+- `python3` - Python interpreter
+- `supervisorctl` - Supervisor process manager
+- `systemctl` - Systemd service manager (optional)
+- `ss` or `netstat` - Network tools (optional)
+
+**Solution: Install missing packages**
+
+For Ubuntu/Debian:
+```bash
+apt-get update
+apt-get install -y python3 supervisor systemd iproute2 net-tools
+```
+
+For CentOS/RHEL:
+```bash
+yum install -y python3 supervisor systemd iproute net-tools
+```
+
+**Alternative: Manual installation without script**
+
+If you can't install dependencies, copy files manually:
+```bash
+# Create directory
+mkdir -p /app/backend
+
+# Copy Python modules (from repository)
+cp app/backend/pptp_tunnel_manager.py /app/backend/
+cp app/backend/watchdog.py /app/backend/
+
+# Test imports
+python3 -c "from app.backend import pptp_tunnel_manager"
+python3 -c "from app.backend import watchdog"
+```
+
 ### Issue: Port 8001 already in use
 
 ```bash
