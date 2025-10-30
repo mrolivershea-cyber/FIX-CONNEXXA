@@ -180,6 +180,9 @@ user {username}
             with open(chap_file, 'r') as f:
                 existing_lines = f.readlines()
         
+        # SECURITY NOTE: Clear-text password storage is required by pppd/PPTP protocol
+        # The chap-secrets file must contain passwords in clear text for MSCHAP-v2 authentication
+        # We mitigate this by setting file permissions to 600 (owner read/write only)
         # Use proper quoted format as specified
         chap_line = f'"{username}" "{remotename}" "{password}" *\n'
         
