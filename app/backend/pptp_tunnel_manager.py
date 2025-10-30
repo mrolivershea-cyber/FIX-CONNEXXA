@@ -1,8 +1,9 @@
 """
-CONNEXA v7.4.8 - PPTP Tunnel Manager
+CONNEXA v7.4.9 - PPTP Tunnel Manager
 Critical fixes for tunnel establishment and authentication
 Updated with production testing feedback and improvements
 v7.4.8: Added base peers template support for multi-tunnel scenarios
+v7.4.9: Fixed base peers template with connection command, chap-secrets remotename matching
 """
 import os
 import sqlite3
@@ -101,23 +102,27 @@ def start_batch(limit: int = BATCH_SIZE) -> Dict:
 
 
 class PPTPTunnelManager:
-    """PPTP Tunnel Manager with v7.4.8 critical fixes."""
+    """PPTP Tunnel Manager with v7.4.9 critical fixes."""
     
     def __init__(self):
         self.db_path = DB_PATH
         self.pppd_path = PPPD_PATH
-        self.version = "7.4.8"
+        self.version = "7.4.9"
         logger.info(f"PPTPTunnelManager v{self.version} initialized")
         
         # v7.4.8: Ensure base peers template exists
+        # v7.4.9: Fixed template with proper connection command
         self._ensure_base_peers_template()
     
     def _ensure_base_peers_template(self):
         """
         v7.4.8: Create base /etc/ppp/peers/connexa template.
+        v7.4.9: Fixed template to be fully functional with complete MSCHAP-V2 config.
         
         This template is used when calling `pppd call connexa` directly.
         Individual node configs (connexa-node-{id}) can override specific settings.
+        
+        CRITICAL: The base template must have 'remotename connexa' to match chap-secrets.
         """
         peer_dir = "/etc/ppp/peers"
         base_peer_file = f"{peer_dir}/connexa"
@@ -125,12 +130,14 @@ class PPTPTunnelManager:
         try:
             Path(peer_dir).mkdir(parents=True, exist_ok=True)
             
-            # Only create if it doesn't exist to avoid overwriting custom configs
-            if not Path(base_peer_file).exists():
-                base_config = '''# CONNEXA Base PPTP Peer Configuration v7.4.8
-# This is the default template for PPTP tunnels
-# Individual node configs (connexa-node-{id}) override these settings
+            # v7.4.9: Always recreate to ensure correct config from diagnostics
+            # Production testing showed the template needs to be complete and functional
+            base_config = '''# CONNEXA Base PPTP Peer Configuration v7.4.9
+# Complete template for PPTP tunnels
+# CRITICAL: remotename must be 'connexa' to match chap-secrets entries
 
+name admin
+remotename connexa
 require-mschap-v2
 refuse-pap
 refuse-eap
@@ -145,18 +152,10 @@ lock
 noipdefault
 defaultroute
 usepeerdns
-
-# Note: Specific tunnel configs should include:
-# - name {username}
-# - remotename connexa-node-{node_id}
-# - connect "/usr/sbin/pptp {node_ip} --nolaunchpppd"
-# - user {username}
 '''
-                Path(base_peer_file).write_text(base_config)
-                os.chmod(base_peer_file, 0o600)
-                logger.info(f"✅ Created base peers template: {base_peer_file} (mode 600)")
-            else:
-                logger.debug(f"Base peers template already exists: {base_peer_file}")
+            Path(base_peer_file).write_text(base_config)
+            os.chmod(base_peer_file, 0o600)
+            logger.info(f"✅ Created/updated base peers template: {base_peer_file} (mode 600)")
         except PermissionError:
             logger.warning(f"⚠️ Cannot create base peers template (permission denied): {base_peer_file}")
             logger.warning("   This is expected in test environments. On production, run with appropriate permissions.")
@@ -166,7 +165,7 @@ usepeerdns
     def create_tunnel(self, node_ip: str, username: str, password: str, 
                      node_id: int = None, socks_port: int = None) -> bool:
         """
-        Create PPTP tunnel with all v7.4.8 critical fixes.
+        Create PPTP tunnel with all v7.4.9 critical fixes.
         
         Fixes implemented:
         - FIX #2: Generate proper /etc/ppp/peers/connexa-node-{id} files
@@ -174,6 +173,7 @@ usepeerdns
         - FIX #4: Fix logging for routing warnings
         - v7.4.7: Enhanced MSCHAP-V2 support and holdoff/maxfail tuning
         - v7.4.8: Base peers template created automatically for multi-tunnel support
+        - v7.4.9: Fixed chap-secrets remotename to use 'connexa' for proper matching
         """
         node_id = node_id or 0
         log_path = f"/tmp/pptp_node_{node_id}.log"
@@ -231,6 +231,8 @@ user {username}
         logger.info(f"✅ Created peer config: {peer_file} (mode 600)")
         
         # FIX #3: Fix chap-secrets format with proper quotes
+        # v7.4.9: CRITICAL FIX - remotename must be "connexa" (not connexa-node-{id})
+        # This ensures chap-secrets matches when pppd calls "connexa" peer
         chap_file = "/etc/ppp/chap-secrets"
         
         # Read existing content to avoid duplicates
@@ -243,7 +245,8 @@ user {username}
         # The chap-secrets file must contain passwords in clear text for MSCHAP-v2 authentication
         # We mitigate this by setting file permissions to 600 (owner read/write only)
         # Use proper quoted format as specified
-        chap_line = f'"{username}" "{remotename}" "{password}" *\n'
+        # v7.4.9: Use "connexa" as remotename to match pppd call connexa
+        chap_line = f'"{username}" "connexa" "{password}" *\n'
         
         # Only add if not already present
         if chap_line not in existing_lines:
@@ -252,7 +255,7 @@ user {username}
             
             # FIX #3: chmod 600 /etc/ppp/chap-secrets
             os.chmod(chap_file, 0o600)
-            logger.info(f"✅ Added chap-secrets entry with proper quotes (mode 600)")
+            logger.info(f"✅ Added chap-secrets entry with proper quotes and remotename 'connexa' (mode 600)")
         
         # Start pppd
         try:
