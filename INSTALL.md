@@ -1,6 +1,28 @@
-# CONNEXA v7.4.7 - Installation Guide
+# CONNEXA v7.4.8 - Installation Guide
 
-## Quick Installation
+## ⚡ Quick Install (One Command - RECOMMENDED)
+
+**If you're having trouble downloading files, use our universal installer:**
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/copilot/fix-pptp-tunnel-issues/download_and_install.sh)
+```
+
+Or with wget:
+```bash
+bash <(wget -qO- https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/copilot/fix-pptp-tunnel-issues/download_and_install.sh)
+```
+
+**What this does:**
+- ✅ Auto-detects your download tool (wget/curl)
+- ✅ Downloads the latest v7.4.8 patch
+- ✅ Handles download errors automatically
+- ✅ Offers to install immediately or save for later
+- ✅ Works even when git is not available
+
+---
+
+## Alternative Installation Methods
 
 ### Method 1: Clone Repository (Recommended)
 
@@ -15,26 +37,32 @@ cd FIX-CONNEXXA
 git checkout copilot/fix-pptp-tunnel-issues
 
 # Verify files exist
-ls -la install_connexa_v7_4_7_patch.sh
+ls -la install_connexa_v7_4_8_patch.sh
 
 # Run installation
-bash install_connexa_v7_4_7_patch.sh
+bash install_connexa_v7_4_8_patch.sh
 ```
 
 ### Method 2: Direct Download (No Git Required)
 
 ```bash
 # Download the installation script directly
-wget https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/copilot/fix-pptp-tunnel-issues/install_connexa_v7_4_7_patch.sh
+wget https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/copilot/fix-pptp-tunnel-issues/install_connexa_v7_4_8_patch.sh
 
 # OR use curl
-curl -O https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/copilot/fix-pptp-tunnel-issues/install_connexa_v7_4_7_patch.sh
+curl -O https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/copilot/fix-pptp-tunnel-issues/install_connexa_v7_4_8_patch.sh
 
 # Make it executable
-chmod +x install_connexa_v7_4_7_patch.sh
+chmod +x install_connexa_v7_4_8_patch.sh
 
 # Run installation
-bash install_connexa_v7_4_7_patch.sh
+bash install_connexa_v7_4_8_patch.sh
+```
+
+**If download fails, try:**
+```bash
+# Use the universal downloader
+curl -fsSL https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/copilot/fix-pptp-tunnel-issues/download_and_install.sh | bash
 ```
 
 ### Method 3: Minimal Installation
