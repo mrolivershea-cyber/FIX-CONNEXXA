@@ -23,7 +23,7 @@ echo "Step 1/7: Backup..."
 BACKUP_DIR="/app/backend/backup_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 [ -f "server.py" ] && cp server.py "$BACKUP_DIR/server.py.backup"
-[ -f "service_manager.py" ] && cp service_manager.py "$BACKUP_DIR/service_manager.py.backup"
+[ -f "service_manager.py" ] && cp service_manager.py "$BACKUP_DIR/service_manager.py.backup" || true
 echo "OK: Backup at $BACKUP_DIR"
 
 echo ""
