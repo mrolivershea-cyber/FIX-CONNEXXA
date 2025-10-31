@@ -206,15 +206,28 @@ else
     echo "  → Flask installed successfully"
 fi
 
-# Download backend server from GitHub
-echo "  → Downloading backend server..."
-curl -fsSL https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/copilot/fix-connexa-issues/backend/connexa_backend_server.py -o /usr/local/bin/connexa_backend_server.py
+# Download correct backend server (port 8001, not 8081!)
+echo "  → Downloading backend server (port 8001)..."
+curl -fsSL https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/copilot/fix-connexa-issues/backend/connexa_backend_v7_working.py -o /usr/local/bin/connexa_backend_server.py
 chmod +x /usr/local/bin/connexa_backend_server.py
 
 if [ ! -f /usr/local/bin/connexa_backend_server.py ]; then
     echo -e "${RED}❌ Failed to download backend server${NC}"
     exit 1
 fi
+
+# Download service manager
+echo "  → Downloading service manager..."
+curl -fsSL https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/copilot/fix-connexa-issues/backend/service_manager_v7_working.py -o /usr/local/bin/service_manager_v7_working.py
+chmod +x /usr/local/bin/service_manager_v7_working.py
+
+if [ ! -f /usr/local/bin/service_manager_v7_working.py ]; then
+    echo -e "${RED}❌ Failed to download service manager${NC}"
+    exit 1
+fi
+
+# Install flask-cors for CORS support
+pip3 install flask-cors 2>/dev/null || apt-get install -y python3-flask-cors 2>/dev/null || true
 
 # Create supervisor config for backend
 cat > /etc/supervisor/conf.d/connexa-backend.conf << 'BACKEND_CONF_EOF'
@@ -228,9 +241,10 @@ stdout_logfile=/var/log/connexa-backend.log
 stderr_logfile=/var/log/connexa-backend.log
 user=root
 priority=100
+environment=PYTHONPATH="/usr/local/bin"
 BACKEND_CONF_EOF
 
-echo -e "${GREEN}✅ Backend server installed (Flask on port 8081)${NC}"
+echo -e "${GREEN}✅ Backend server installed (Flask on port 8001)${NC}"
 
 # Step 6: Install Watchdog (Python version with robust error handling)
 echo ""
