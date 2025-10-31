@@ -54,8 +54,8 @@ log "Entering monitoring loop (check interval: ${CHECK_INTERVAL}s)"
 log "=========================================="
 
 while true; do
-    # Count PPP interfaces
-    PPP_COUNT=$(ip addr show | grep -c "ppp[0-9]:" || echo "0")
+    # Count PPP interfaces that are UP
+    PPP_COUNT=$(ip a | grep -E "ppp[0-9].*UP" | wc -l || echo "0")
     
     # Check backend status
     if [ $BACKEND_READY -eq 1 ]; then

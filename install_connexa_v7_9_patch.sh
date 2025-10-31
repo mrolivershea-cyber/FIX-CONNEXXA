@@ -131,24 +131,26 @@ if [ -n "$IPREMOTE" ] && [ -n "$PPP_IFACE" ]; then
             if ip route show | grep -q "$IPREMOTE"; then
                 log "Replacing route to $IPREMOTE"
                 if ip route replace "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"; then
+                    echo "[RouteFix] Route added for $PPP_IFACE → $IPREMOTE" >> /var/log/connexa-routefix.log
                     ROUTE_ADDED=1
                     break
                 fi
             else
                 log "Adding route to $IPREMOTE"
                 if ip route add "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"; then
+                    echo "[RouteFix] Route added for $PPP_IFACE → $IPREMOTE" >> /var/log/connexa-routefix.log
                     ROUTE_ADDED=1
                     break
                 fi
             fi
         else
             log "Interface not ready (attempt $i/3), waiting..."
+            echo "[RouteFix] Waiting for $PPP_IFACE to be UP (attempt $i)" >> /var/log/connexa-routefix.log
             sleep 1
         fi
     done
     if [ $ROUTE_ADDED -eq 1 ]; then
         log "✅ Route added successfully"
-        echo "[RouteFix] Route added for $PPP_IFACE → $IPREMOTE" >> /var/log/connexa-routefix.log
     else
         log "❌ FAILED: $PPP_IFACE not ready after 3s"
         echo "[RouteFix] FAILED: $PPP_IFACE not ready after 3s" >> /var/log/connexa-routefix.log
