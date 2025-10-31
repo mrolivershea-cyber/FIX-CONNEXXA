@@ -64,12 +64,12 @@ fi
 
 # Test 3: Check backend port
 log ""
-log "[Test 3/10] Checking backend port 8001..."
+log "[Test 3/10] Checking backend port 8081..."
 sleep 2
-if lsof -i :8001 > /dev/null 2>&1 || curl -sf http://localhost:8001/metrics > /dev/null 2>&1; then
-    test_result "Backend port 8001" "PASS" "Port 8001 is listening"
+if lsof -i :8081 > /dev/null 2>&1 || curl -sf http://localhost:8081/metrics > /dev/null 2>&1; then
+    test_result "Backend port 8081" "PASS" "Port 8081 is listening"
 else
-    test_result "Backend port 8001" "FAIL" "Port 8001 is not accessible"
+    test_result "Backend port 8081" "FAIL" "Port 8081 is not accessible"
 fi
 
 # Test 4: Check watchdog
@@ -139,8 +139,8 @@ fi
 # Test 9: Check metrics endpoint
 log ""
 log "[Test 9/10] Checking metrics endpoint..."
-if curl -sf http://localhost:8001/metrics > /dev/null 2>&1; then
-    METRICS=$(curl -s http://localhost:8001/metrics 2>/dev/null || echo "")
+if curl -sf http://localhost:8081/metrics > /dev/null 2>&1; then
+    METRICS=$(curl -s http://localhost:8081/metrics 2>/dev/null || echo "")
     if echo "$METRICS" | grep -q "connexa"; then
         test_result "Metrics endpoint" "PASS" "Metrics endpoint is accessible"
         # Show relevant metrics
