@@ -30,20 +30,51 @@ fi
 # Add host route to remote endpoint
 # This prevents "Nexthop has invalid gateway" error
 if [ -n "$IPREMOTE" ]; then
-    # Check if route already exists
-    if ip route show | grep -q "$IPREMOTE"; then
-        log "Route to $IPREMOTE already exists, replacing..."
-        ip route replace "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"
-    else
-        log "Adding host route to $IPREMOTE via $PPP_IFACE"
-        ip route add "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"
-    fi
+    # Wait for interface to be fully UP with retry logic
+    log "Waiting for $PPP_IFACE to be fully ready..."
+    ROUTE_ADDED=0
     
-    # Verify route was added
-    if ip route show | grep -q "$IPREMOTE"; then
-        log "✅ Route added successfully"
+    for i in {1..3}; do
+        # Check if interface is UP
+        if ip link show "$PPP_IFACE" 2>/dev/null | grep -q "state UP"; then
+            log "Interface $PPP_IFACE is UP (attempt $i/3)"
+            
+            # Add small delay to ensure interface is stable
+            sleep 1
+            
+            # Check if route already exists
+            if ip route show | grep -q "$IPREMOTE"; then
+                log "Route to $IPREMOTE already exists, replacing..."
+                if ip route replace "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"; then
+                    log "✅ Route replaced successfully"
+                    ROUTE_ADDED=1
+                    break
+                fi
+            else
+                log "Adding host route to $IPREMOTE via $PPP_IFACE"
+                if ip route add "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"; then
+                    log "✅ Route added successfully"
+                    ROUTE_ADDED=1
+                    break
+                fi
+            fi
+        else
+            log "⚠️ Interface $PPP_IFACE not ready yet (attempt $i/3), waiting..."
+            sleep 1
+        fi
+    done
+    
+    # Final verification
+    if [ $ROUTE_ADDED -eq 1 ]; then
+        if ip route show | grep -q "$IPREMOTE"; then
+            log "✅ Route verification passed"
+            echo "[RouteFix] Route added for $PPP_IFACE → $IPREMOTE" >> /var/log/connexa-routefix.log
+        else
+            log "⚠️ Route verification failed"
+        fi
     else
-        log "⚠️ Failed to add route"
+        log "❌ FAILED: $PPP_IFACE not ready after 3 attempts"
+        echo "[RouteFix] FAILED: $PPP_IFACE not ready after 3s" >> /var/log/connexa-routefix.log
     fi
 fi
 

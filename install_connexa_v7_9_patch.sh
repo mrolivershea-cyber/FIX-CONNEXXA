@@ -112,7 +112,7 @@ fi
 echo ""
 echo -e "${GREEN}[Step 4/10] Installing PPP up/down scripts...${NC}"
 
-# ip-up script
+# ip-up script with retry logic for interface readiness
 cat > /etc/ppp/ip-up << 'IPUP_EOF'
 #!/bin/bash
 LOGFILE="/var/log/ppp-up.log"
@@ -121,16 +121,37 @@ log "=========================================="
 log "PPP Interface UP: $PPP_IFACE"
 log "Local: $IPLOCAL, Remote: $IPREMOTE"
 log "=========================================="
-if [ -n "$IPREMOTE" ]; then
-    if ip route show | grep -q "$IPREMOTE"; then
-        log "Replacing route to $IPREMOTE"
-        ip route replace "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"
-    else
-        log "Adding route to $IPREMOTE"
-        ip route add "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"
-    fi
-    if ip route show | grep -q "$IPREMOTE"; then
+if [ -n "$IPREMOTE" ] && [ -n "$PPP_IFACE" ]; then
+    log "Waiting for $PPP_IFACE to be fully ready..."
+    ROUTE_ADDED=0
+    for i in {1..3}; do
+        if ip link show "$PPP_IFACE" 2>/dev/null | grep -q "state UP"; then
+            log "Interface $PPP_IFACE is UP (attempt $i/3)"
+            sleep 1
+            if ip route show | grep -q "$IPREMOTE"; then
+                log "Replacing route to $IPREMOTE"
+                if ip route replace "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"; then
+                    ROUTE_ADDED=1
+                    break
+                fi
+            else
+                log "Adding route to $IPREMOTE"
+                if ip route add "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"; then
+                    ROUTE_ADDED=1
+                    break
+                fi
+            fi
+        else
+            log "Interface not ready (attempt $i/3), waiting..."
+            sleep 1
+        fi
+    done
+    if [ $ROUTE_ADDED -eq 1 ]; then
         log "✅ Route added successfully"
+        echo "[RouteFix] Route added for $PPP_IFACE → $IPREMOTE" >> /var/log/connexa-routefix.log
+    else
+        log "❌ FAILED: $PPP_IFACE not ready after 3s"
+        echo "[RouteFix] FAILED: $PPP_IFACE not ready after 3s" >> /var/log/connexa-routefix.log
     fi
 fi
 log "ip-up complete"
