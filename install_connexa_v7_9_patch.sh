@@ -244,11 +244,12 @@ cat > /etc/supervisor/conf.d/connexa-watchdog.conf << 'WATCHDOG_CONF_EOF'
 command=/usr/bin/python3 /usr/local/bin/connexa_watchdog.py
 autostart=true
 autorestart=true
-startsecs=10
+startsecs=5
 startretries=999
 stdout_logfile=/var/log/connexa-watchdog.log
 stderr_logfile=/var/log/connexa-watchdog.log
 user=root
+priority=999
 WATCHDOG_CONF_EOF
 
 echo -e "${GREEN}✅ Watchdog installed (Python version with error handling)${NC}"

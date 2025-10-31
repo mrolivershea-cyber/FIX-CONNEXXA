@@ -168,17 +168,14 @@ def main():
     log("CONNEXA Watchdog v7.9 (Python) starting")
     log("=" * 50)
     
-    # Initial delay for system startup
-    log("Initial startup delay (10 seconds)...")
-    time.sleep(10)
+    # Initial delay for system startup (reduced to avoid supervisor timeout)
+    log("Initial startup delay (3 seconds)...")
+    time.sleep(3)
     
-    # Wait for backend
-    backend_ready = wait_for_backend(BACKEND_URL, MAX_WAIT_BACKEND)
-    
-    if backend_ready:
-        log("✅ Backend reachable. Starting monitoring loop.")
-    else:
-        log("⚠️ Starting monitoring without backend confirmation")
+    # Don't wait for backend - start monitoring immediately
+    # Backend will show as DOWN until it's ready, that's fine
+    log("Starting monitoring loop (backend will be checked continuously)")
+    backend_ready = False  # Will be checked in loop
     
     # Main monitoring loop
     log(f"Entering monitoring loop (check interval: {CHECK_INTERVAL}s)")
@@ -189,13 +186,10 @@ def main():
             # Count PPP interfaces
             ppp_count = count_ppp_interfaces()
             
-            # Check backend status
-            if backend_ready:
-                backend_status = "UP" if check_backend(BACKEND_URL) else "DOWN"
-                if backend_status == "DOWN":
-                    log("⚠️ Backend is not responding")
-            else:
-                backend_status = "UNKNOWN"
+            # Check backend status (always check)
+            backend_status = "UP" if check_backend(BACKEND_URL) else "DOWN"
+            if backend_status == "DOWN":
+                log("⚠️ Backend is not responding")
             
             # Count SOCKS ports
             socks_count = count_socks_ports()
