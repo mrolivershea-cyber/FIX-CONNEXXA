@@ -181,14 +181,19 @@ chmod +x /etc/ppp/ip-down
 
 echo -e "${GREEN}✅ PPP scripts installed${NC}"
 
-# Step 5: Install Watchdog
+# Step 5: Install Watchdog (Python version with robust error handling)
 echo ""
 echo -e "${GREEN}[Step 5/10] Installing watchdog...${NC}"
 
+# Copy Python watchdog to /usr/local/bin
+cp backend/connexa_watchdog.py /usr/local/bin/connexa_watchdog.py
+chmod +x /usr/local/bin/connexa_watchdog.py
+
+# Also create bash version as fallback
 cat > /usr/local/bin/connexa-watchdog.sh << 'WATCHDOG_EOF'
 #!/bin/bash
 LOGFILE="/var/log/connexa-watchdog.log"
-BACKEND_URL="http://localhost:8001"
+BACKEND_URL="http://localhost:8081"
 CHECK_INTERVAL=30
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Watchdog] $*" | tee -a "$LOGFILE"; }
 trap 'log "Received shutdown signal, exiting"; exit 0' SIGTERM SIGINT
@@ -211,7 +216,8 @@ else
 fi
 log "=========================================="
 while true; do
-    PPP_COUNT=$(ip addr show | grep -c "ppp[0-9]:" || echo "0")
+    # Use state-aware PPP detection
+    PPP_COUNT=$(ip a | grep -E "ppp[0-9].*UP" | wc -l || echo "0")
     if curl -sf "${BACKEND_URL}/metrics" > /dev/null 2>&1; then
         BACKEND_STATUS="UP"
     else
@@ -223,8 +229,8 @@ while true; do
             SOCKS_COUNT=$((SOCKS_COUNT + 1))
         fi
     done
-    log "Status: PPP=$PPP_COUNT, Backend=$BACKEND_STATUS, SOCKS=$SOCKS_COUNT"
-    [ $PPP_COUNT -eq 0 ] && log "⚠️ WARNING: No PPP interfaces!"
+    log "Status: PPP interfaces UP=$PPP_COUNT, Backend=$BACKEND_STATUS, SOCKS=$SOCKS_COUNT"
+    [ $PPP_COUNT -eq 0 ] && log "⚠️ WARNING: No PPP interfaces UP!"
     [ "$BACKEND_STATUS" = "DOWN" ] && log "⚠️ WARNING: Backend not responding!"
     sleep $CHECK_INTERVAL
 done
@@ -232,10 +238,10 @@ WATCHDOG_EOF
 
 chmod +x /usr/local/bin/connexa-watchdog.sh
 
-# Create supervisor config for watchdog
+# Create supervisor config for watchdog (Python version with fallback to bash)
 cat > /etc/supervisor/conf.d/connexa-watchdog.conf << 'WATCHDOG_CONF_EOF'
 [program:watchdog]
-command=/usr/local/bin/connexa-watchdog.sh
+command=/usr/bin/python3 /usr/local/bin/connexa_watchdog.py
 autostart=true
 autorestart=true
 startsecs=10
@@ -245,7 +251,7 @@ stderr_logfile=/var/log/connexa-watchdog.log
 user=root
 WATCHDOG_CONF_EOF
 
-echo -e "${GREEN}✅ Watchdog installed${NC}"
+echo -e "${GREEN}✅ Watchdog installed (Python version with error handling)${NC}"
 
 # Step 6: Install Self-Test Script
 echo ""
@@ -323,7 +329,10 @@ if supervisorctl status backend > /dev/null 2>&1; then
     sleep 3
 fi
 
-# Start or restart watchdog
+# Start or restart watchdog (with 3 second delay for PPP init)
+echo "Waiting 3 seconds for PPP initialization..."
+sleep 3
+
 if supervisorctl status watchdog > /dev/null 2>&1; then
     echo "Restarting watchdog..."
     supervisorctl restart watchdog > /dev/null 2>&1 || true

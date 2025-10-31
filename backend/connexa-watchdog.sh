@@ -6,7 +6,7 @@
 #
 
 LOGFILE="/var/log/connexa-watchdog.log"
-BACKEND_URL="http://localhost:8001"
+BACKEND_URL="http://localhost:8081"
 CHECK_INTERVAL=30
 
 # Log function
