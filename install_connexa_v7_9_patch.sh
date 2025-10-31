@@ -181,7 +181,7 @@ chmod +x /etc/ppp/ip-down
 
 echo -e "${GREEN}✅ PPP scripts installed${NC}"
 
-# Step 5: Install Backend Server (Flask on port 8081)
+# Step 5: Install Backend Server (Flask on port 8001)
 echo ""
 echo -e "${GREEN}[Step 5/10] Installing backend server...${NC}"
 
@@ -264,7 +264,7 @@ fi
 cat > /usr/local/bin/connexa-watchdog.sh << 'WATCHDOG_EOF'
 #!/bin/bash
 LOGFILE="/var/log/connexa-watchdog.log"
-BACKEND_URL="http://localhost:8081"
+BACKEND_URL="http://localhost:8001"
 CHECK_INTERVAL=30
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [Watchdog] $*" | tee -a "$LOGFILE"; }
 trap 'log "Received shutdown signal, exiting"; exit 0' SIGTERM SIGINT
@@ -345,7 +345,7 @@ echo "[Test 2] PPP Interfaces:"
 ip addr show | grep ppp || echo "No PPP interfaces"
 echo ""
 echo "[Test 3] Backend port:"
-lsof -i :8081 || echo "Port 8081 not listening"
+lsof -i :8001 || echo "Port 8001 not listening"
 echo ""
 echo "[Test 4] Watchdog log (last 10 lines):"
 tail -10 /var/log/connexa-watchdog.log 2>/dev/null || echo "No watchdog log"

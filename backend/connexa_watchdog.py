@@ -13,7 +13,7 @@ from datetime import datetime
 
 # Configuration
 LOGFILE = "/var/log/connexa-watchdog.log"
-BACKEND_URL = "http://localhost:8081"
+BACKEND_URL = "http://localhost:8001"
 CHECK_INTERVAL = 30
 MAX_WAIT_BACKEND = 120
 
