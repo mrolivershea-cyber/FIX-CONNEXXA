@@ -206,9 +206,15 @@ else
     echo "  → Flask installed successfully"
 fi
 
-# Copy backend server
-cp backend/connexa_backend_server.py /usr/local/bin/connexa_backend_server.py
+# Download backend server from GitHub
+echo "  → Downloading backend server..."
+curl -fsSL https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/copilot/fix-connexa-issues/backend/connexa_backend_server.py -o /usr/local/bin/connexa_backend_server.py
 chmod +x /usr/local/bin/connexa_backend_server.py
+
+if [ ! -f /usr/local/bin/connexa_backend_server.py ]; then
+    echo -e "${RED}❌ Failed to download backend server${NC}"
+    exit 1
+fi
 
 # Create supervisor config for backend
 cat > /etc/supervisor/conf.d/connexa-backend.conf << 'BACKEND_CONF_EOF'
@@ -230,9 +236,15 @@ echo -e "${GREEN}✅ Backend server installed (Flask on port 8081)${NC}"
 echo ""
 echo -e "${GREEN}[Step 6/10] Installing watchdog...${NC}"
 
-# Copy Python watchdog to /usr/local/bin
-cp backend/connexa_watchdog.py /usr/local/bin/connexa_watchdog.py
+# Download Python watchdog from GitHub
+echo "  → Downloading watchdog..."
+curl -fsSL https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/copilot/fix-connexa-issues/backend/connexa_watchdog.py -o /usr/local/bin/connexa_watchdog.py
 chmod +x /usr/local/bin/connexa_watchdog.py
+
+if [ ! -f /usr/local/bin/connexa_watchdog.py ]; then
+    echo -e "${RED}❌ Failed to download watchdog${NC}"
+    exit 1
+fi
 
 # Also create bash version as fallback
 cat > /usr/local/bin/connexa-watchdog.sh << 'WATCHDOG_EOF'
