@@ -7,7 +7,8 @@
 # Date: $(date '+%Y-%m-%d')
 #
 
-set -e
+# Don't exit on error - we'll handle errors manually for better feedback
+# set -e
 
 # Color codes
 RED='\033[0;31m'
@@ -41,8 +42,34 @@ fi
 # Step 1: Install dependencies
 echo ""
 echo -e "${GREEN}[Step 1/10] Installing dependencies...${NC}"
-apt-get update -qq
-apt-get install -y pptp-linux ppp sqlite3 curl lsof supervisor python3 python3-pip iptables iptables-persistent > /dev/null 2>&1
+
+# Set non-interactive mode to prevent prompts
+export DEBIAN_FRONTEND=noninteractive
+
+# Pre-configure iptables-persistent to avoid prompts
+echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
+echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
+
+# Update package list
+echo "  → Updating package list..."
+apt-get update -qq 2>&1 | grep -v "^[WE]:" || true
+
+# Install packages one by one for better error handling
+echo "  → Installing core packages..."
+apt-get install -y pptp-linux ppp sqlite3 curl lsof 2>&1 | grep -v "^[WE]:" || true
+
+echo "  → Installing supervisor..."
+apt-get install -y supervisor 2>&1 | grep -v "^[WE]:" || true
+
+echo "  → Installing python3..."
+apt-get install -y python3 python3-pip 2>&1 | grep -v "^[WE]:" || true
+
+echo "  → Installing iptables..."
+apt-get install -y iptables 2>&1 | grep -v "^[WE]:" || true
+
+echo "  → Installing iptables-persistent..."
+apt-get install -y iptables-persistent 2>&1 | grep -v "^[WE]:" || true
+
 echo -e "${GREEN}✅ Dependencies installed${NC}"
 
 # Step 2: Create directories
