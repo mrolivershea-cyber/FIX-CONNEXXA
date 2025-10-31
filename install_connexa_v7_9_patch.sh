@@ -181,9 +181,37 @@ chmod +x /etc/ppp/ip-down
 
 echo -e "${GREEN}✅ PPP scripts installed${NC}"
 
-# Step 5: Install Watchdog (Python version with robust error handling)
+# Step 5: Install Backend Server (Flask on port 8081)
 echo ""
-echo -e "${GREEN}[Step 5/10] Installing watchdog...${NC}"
+echo -e "${GREEN}[Step 5/10] Installing backend server...${NC}"
+
+# Install Flask if not present
+echo "  → Installing Flask..."
+pip3 install flask 2>&1 | grep -v "^Requirement already satisfied" | grep -v "^Collecting" || true
+
+# Copy backend server
+cp backend/connexa_backend_server.py /usr/local/bin/connexa_backend_server.py
+chmod +x /usr/local/bin/connexa_backend_server.py
+
+# Create supervisor config for backend
+cat > /etc/supervisor/conf.d/connexa-backend.conf << 'BACKEND_CONF_EOF'
+[program:backend]
+command=/usr/bin/python3 /usr/local/bin/connexa_backend_server.py
+autostart=true
+autorestart=true
+startsecs=10
+startretries=999
+stdout_logfile=/var/log/connexa-backend.log
+stderr_logfile=/var/log/connexa-backend.log
+user=root
+priority=100
+BACKEND_CONF_EOF
+
+echo -e "${GREEN}✅ Backend server installed (Flask on port 8081)${NC}"
+
+# Step 6: Install Watchdog (Python version with robust error handling)
+echo ""
+echo -e "${GREEN}[Step 6/10] Installing watchdog...${NC}"
 
 # Copy Python watchdog to /usr/local/bin
 cp backend/connexa_watchdog.py /usr/local/bin/connexa_watchdog.py
@@ -254,9 +282,9 @@ WATCHDOG_CONF_EOF
 
 echo -e "${GREEN}✅ Watchdog installed (Python version with error handling)${NC}"
 
-# Step 6: Install Self-Test Script
+# Step 7: Install Self-Test Script
 echo ""
-echo -e "${GREEN}[Step 6/10] Installing self-test script...${NC}"
+echo -e "${GREEN}[Step 7/11] Installing self-test script...${NC}"
 
 if [ -f "$SCRIPT_DIR/backend/selftest.sh" ]; then
     cp "$SCRIPT_DIR/backend/selftest.sh" "$SELFTEST_DIR/"
@@ -285,9 +313,9 @@ fi
 chmod +x "$SELFTEST_DIR/selftest.sh"
 echo -e "${GREEN}✅ Self-test script installed at $SELFTEST_DIR/selftest.sh${NC}"
 
-# Step 7: Configure firewall for PPTP
+# Step 8: Configure firewall for PPTP
 echo ""
-echo -e "${GREEN}[Step 7/10] Configuring firewall...${NC}"
+echo -e "${GREEN}[Step 8/11] Configuring firewall...${NC}"
 
 # Allow GRE protocol (47) and PPTP port (1723)
 iptables -C INPUT -p gre -j ACCEPT 2>/dev/null || iptables -A INPUT -p gre -j ACCEPT
@@ -302,9 +330,9 @@ fi
 
 echo -e "${GREEN}✅ Firewall configured (GRE + TCP/1723)${NC}"
 
-# Step 8: Configure cron for automatic testing
+# Step 9: Configure cron for automatic testing
 echo ""
-echo -e "${GREEN}[Step 8/10] Configuring automatic testing...${NC}"
+echo -e "${GREEN}[Step 9/11] Configuring automatic testing...${NC}"
 
 # Add cron job for reboot testing
 CRON_ENTRY="@reboot /bin/bash $SELFTEST_DIR/selftest.sh >> /var/log/selftest.log 2>&1"
@@ -315,9 +343,9 @@ else
     echo -e "${YELLOW}ℹ️ Cron job already exists${NC}"
 fi
 
-# Step 9: Reload supervisor and start services
+# Step 10: Reload supervisor and start services
 echo ""
-echo -e "${GREEN}[Step 9/10] Reloading supervisor...${NC}"
+echo -e "${GREEN}[Step 10/11] Reloading supervisor...${NC}"
 
 supervisorctl reread > /dev/null 2>&1 || true
 supervisorctl update > /dev/null 2>&1 || true
@@ -345,9 +373,9 @@ fi
 sleep 2
 echo -e "${GREEN}✅ Services reloaded${NC}"
 
-# Step 10: Run self-test
+# Step 11: Run self-test
 echo ""
-echo -e "${GREEN}[Step 10/10] Running self-test...${NC}"
+echo -e "${GREEN}[Step 11/11] Running self-test...${NC}"
 echo ""
 
 # Run the self-test
