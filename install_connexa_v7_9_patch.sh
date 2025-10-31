@@ -187,7 +187,24 @@ echo -e "${GREEN}[Step 5/10] Installing backend server...${NC}"
 
 # Install Flask if not present
 echo "  → Installing Flask..."
-pip3 install flask 2>&1 | grep -v "^Requirement already satisfied" | grep -v "^Collecting" || true
+pip3 install --upgrade pip >/dev/null 2>&1 || true
+pip3 install flask requests >/dev/null 2>&1
+
+# Verify Flask installation
+if ! python3 -c "import flask" 2>/dev/null; then
+    echo -e "${RED}❌ Flask installation failed!${NC}"
+    echo "  → Trying alternative method..."
+    apt-get install -y python3-flask python3-requests >/dev/null 2>&1
+    
+    if ! python3 -c "import flask" 2>/dev/null; then
+        echo -e "${RED}❌ CRITICAL: Cannot install Flask. Backend will not work.${NC}"
+        echo "  → Please install Flask manually: pip3 install flask"
+    else
+        echo "  → Flask installed successfully via apt"
+    fi
+else
+    echo "  → Flask installed successfully"
+fi
 
 # Copy backend server
 cp backend/connexa_backend_server.py /usr/local/bin/connexa_backend_server.py
