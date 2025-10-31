@@ -1,0 +1,64 @@
+#!/bin/bash
+#
+# /etc/ppp/ip-up - Script run after PPP connection is established
+# CONNEXA v7.9 - Routing fix to prevent "Nexthop has invalid gateway"
+#
+
+# Log file
+LOGFILE="/var/log/ppp-up.log"
+
+# Log function
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ip-up] $*" | tee -a "$LOGFILE"
+}
+
+log "=========================================="
+log "PPP Interface UP"
+log "Interface: $PPP_IFACE"
+log "Local IP: $IPLOCAL"
+log "Remote IP: $IPREMOTE"
+log "DNS1: $DNS1"
+log "DNS2: $DNS2"
+log "=========================================="
+
+# Check if required variables are set
+if [ -z "$PPP_IFACE" ] || [ -z "$IPREMOTE" ]; then
+    log "ERROR: Required variables not set"
+    exit 1
+fi
+
+# Add host route to remote endpoint
+# This prevents "Nexthop has invalid gateway" error
+if [ -n "$IPREMOTE" ]; then
+    # Check if route already exists
+    if ip route show | grep -q "$IPREMOTE"; then
+        log "Route to $IPREMOTE already exists, replacing..."
+        ip route replace "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"
+    else
+        log "Adding host route to $IPREMOTE via $PPP_IFACE"
+        ip route add "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"
+    fi
+    
+    # Verify route was added
+    if ip route show | grep -q "$IPREMOTE"; then
+        log "✅ Route added successfully"
+    else
+        log "⚠️ Failed to add route"
+    fi
+fi
+
+# Check if default route exists
+if ip route show | grep -q "default via"; then
+    log "Default route already exists (good - not overriding)"
+else
+    log "No default route found - this may be intentional"
+fi
+
+# Show current routing table
+log "Current routes for $PPP_IFACE:"
+ip route show dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"
+
+log "ip-up complete"
+log "=========================================="
+
+exit 0
