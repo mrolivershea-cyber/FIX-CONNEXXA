@@ -13,7 +13,7 @@ echo "════════════════════════�
 echo ""
 echo "📦 [Step 0/4] Checking prerequisites..."
 
-if [ "$EUID" -ne 0 ]; then 
+if [ "$EUID" -ne 0 ]; then
     echo "❌ ERROR: This script must be run as root"
     exit 1
 fi
@@ -78,7 +78,7 @@ if [ -f "server.py" ]; then
         sed -i '18a load_dotenv()' server.py
         echo "✅ Added load_dotenv import and call to server.py"
     fi
-    
+
     # Verify the changes
     echo ""
     echo "Verification - Lines around the change:"
@@ -86,7 +86,7 @@ if [ -f "server.py" ]; then
 else
     echo "⚠️  server.py doesn't exist yet"
     echo "Creating a basic server.py with load_dotenv..."
-    
+
     cat > server.py <<'PYEOF'
 """
 CONNEXA Backend Server
@@ -156,7 +156,7 @@ if start_service:
         result = await start_service()
         if not result.get("ok"):
             raise HTTPException(
-                status_code=result.get("status_code", 500), 
+                status_code=result.get("status_code", 500),
                 detail=result
             )
         return result
@@ -182,7 +182,7 @@ if __name__ == "__main__":
     host = os.getenv("HOST", "127.0.0.1")  # Default to localhost for security
     uvicorn.run(app, host=host, port=port)
 PYEOF
-    
+
     echo "✅ Created server.py with load_dotenv support"
 fi
 
@@ -203,13 +203,13 @@ if [ -f "AuthContext.js" ]; then
         # Apply the fix using sed
         # This will replace the line that defines API with the fixed version
         sed -i 's|const API = `${BACKEND_URL}/api`;|const API = BACKEND_URL.endsWith("/api") ? BACKEND_URL : `${BACKEND_URL}/api`;|g' AuthContext.js
-        
+
         # Also handle variations without backticks
         sed -i 's|const API = \${BACKEND_URL}/api;|const API = BACKEND_URL.endsWith("/api") ? BACKEND_URL : `${BACKEND_URL}/api`;|g' AuthContext.js
-        
+
         echo "✅ Fixed double /api issue in AuthContext.js"
     fi
-    
+
     # Verify the changes
     echo ""
     echo "Verification - API constant definition:"
@@ -217,7 +217,7 @@ if [ -f "AuthContext.js" ]; then
 else
     echo "⚠️  AuthContext.js doesn't exist yet"
     echo "Creating a basic AuthContext.js with the fix..."
-    
+
     cat > AuthContext.js <<'JSEOF'
 import React, { createContext, useState, useEffect, useContext } from 'react';
 
@@ -255,7 +255,7 @@ export const AuthProvider = ({ children }) => {
           console.warn('Auth verification endpoint not available:', err);
           return null;
         });
-        
+
         if (response && response.ok) {
           const data = await response.json();
           setUser(data.user);
@@ -317,7 +317,7 @@ export const useAuth = () => {
 
 export default AuthContext;
 JSEOF
-    
+
     echo "✅ Created AuthContext.js with double /api fix"
 fi
 
@@ -331,12 +331,12 @@ echo "📦 [Step 4/4] Restarting services..."
 if command -v supervisorctl &> /dev/null; then
     echo "Restarting backend service..."
     supervisorctl restart backend 2>/dev/null || supervisorctl restart connexa-backend 2>/dev/null || echo "⚠️  Backend service not found in supervisor"
-    
+
     echo "Restarting frontend service..."
     supervisorctl restart frontend 2>/dev/null || supervisorctl restart connexa-frontend 2>/dev/null || echo "⚠️  Frontend service not found in supervisor"
-    
+
     sleep 3
-    
+
     # Check service status
     echo ""
     echo "Service status:"
@@ -365,7 +365,7 @@ if [ -f "/app/backend/server.py" ]; then
     else
         echo "❌ load_dotenv import not found"
     fi
-    
+
     if grep -q "load_dotenv()" /app/backend/server.py; then
         echo "✅ load_dotenv() call found"
     else
