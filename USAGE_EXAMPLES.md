@@ -234,7 +234,7 @@ docker exec connexa-backend bash /tmp/MINIFIX_PATCH.sh
 
 ```yaml
 # .github/workflows/apply-minifix.yml
-name: Apply MiniFixr
+name: Apply MiniFix
 
 on:
   workflow_dispatch:

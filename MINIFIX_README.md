@@ -209,6 +209,27 @@ supervisorctl restart frontend
 - **Frontend**: `/app/frontend/src/contexts/AuthContext.js`
 - **Backups**: `/app/backup_YYYYMMDD_HHMMSS/`
 
+## Security Considerations
+
+### Backend Security
+The generated `server.py` includes security best practices:
+
+- **Host Binding**: Defaults to `127.0.0.1` (localhost) for security. Set `HOST=0.0.0.0` in `.env` only if you need external access.
+- **CORS Origins**: Configurable via `ALLOWED_ORIGINS` environment variable (comma-separated). Defaults to `http://localhost:3000,http://localhost:8080`.
+- **Environment Variables**: All sensitive configuration should be in `.env` files, never hardcoded.
+
+Example `.env` file:
+```bash
+PORT=8001
+HOST=127.0.0.1
+ALLOWED_ORIGINS=http://localhost:3000,https://yourdomain.com
+```
+
+### Frontend Security
+- The authentication endpoint includes error handling for missing backend endpoints
+- Tokens are stored in localStorage (consider upgrading to httpOnly cookies for production)
+- API calls include proper error handling
+
 ## Dependencies
 
 ### Backend

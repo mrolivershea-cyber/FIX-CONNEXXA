@@ -127,9 +127,11 @@ app = FastAPI(
 )
 
 # CORS middleware
+# Configure allowed origins from environment or use localhost for security
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8080").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -177,7 +179,8 @@ if service_status:
 # Run server
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8001"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    host = os.getenv("HOST", "127.0.0.1")  # Default to localhost for security
+    uvicorn.run(app, host=host, port=port)
 PYEOF
     
     echo "✅ Created server.py with load_dotenv support"
@@ -242,20 +245,26 @@ export const AuthProvider = ({ children }) => {
       const token = localStorage.getItem('token');
       if (token) {
         // Verify token with backend
+        // Note: The /auth/verify endpoint needs to be implemented in the backend
         const response = await fetch(`${API}/auth/verify`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
+        }).catch(err => {
+          // If endpoint doesn't exist yet, just clear token and continue
+          console.warn('Auth verification endpoint not available:', err);
+          return null;
         });
         
-        if (response.ok) {
+        if (response && response.ok) {
           const data = await response.json();
           setUser(data.user);
-        } else {
+        } else if (response && !response.ok) {
           localStorage.removeItem('token');
         }
       }
     } catch (err) {
+      console.error('Auth check error:', err);
       setError(err.message);
     } finally {
       setLoading(false);
