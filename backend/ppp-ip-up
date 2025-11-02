@@ -1,0 +1,97 @@
+#!/bin/bash
+#
+# /etc/ppp/ip-up - Script run after PPP connection is established
+# CONNEXA v7.9 - Routing fix to prevent "Nexthop has invalid gateway"
+#
+
+# Log file
+LOGFILE="/var/log/ppp-up.log"
+
+# Log function
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ip-up] $*" | tee -a "$LOGFILE"
+}
+
+log "=========================================="
+log "PPP Interface UP"
+log "Interface: $PPP_IFACE"
+log "Local IP: $IPLOCAL"
+log "Remote IP: $IPREMOTE"
+log "DNS1: $DNS1"
+log "DNS2: $DNS2"
+log "=========================================="
+
+# Check if required variables are set
+if [ -z "$PPP_IFACE" ] || [ -z "$IPREMOTE" ]; then
+    log "ERROR: Required variables not set"
+    exit 1
+fi
+
+# Add host route to remote endpoint
+# This prevents "Nexthop has invalid gateway" error
+if [ -n "$IPREMOTE" ]; then
+    # Wait for interface to be fully UP with retry logic
+    log "Waiting for $PPP_IFACE to be fully ready..."
+    ROUTE_ADDED=0
+    
+    for i in {1..3}; do
+        # Check if interface is UP
+        if ip link show "$PPP_IFACE" 2>/dev/null | grep -q "state UP"; then
+            log "Interface $PPP_IFACE is UP (attempt $i/3)"
+            
+            # Add small delay to ensure interface is stable
+            sleep 1
+            
+            # Check if route already exists
+            if ip route show | grep -q "$IPREMOTE"; then
+                log "Route to $IPREMOTE already exists, replacing..."
+                if ip route replace "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"; then
+                    log "✅ Route replaced successfully"
+                    echo "[RouteFix] Route added for $PPP_IFACE → $IPREMOTE" >> /var/log/connexa-routefix.log
+                    ROUTE_ADDED=1
+                    break
+                fi
+            else
+                log "Adding host route to $IPREMOTE via $PPP_IFACE"
+                if ip route add "$IPREMOTE/32" dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"; then
+                    log "✅ Route added successfully"
+                    echo "[RouteFix] Route added for $PPP_IFACE → $IPREMOTE" >> /var/log/connexa-routefix.log
+                    ROUTE_ADDED=1
+                    break
+                fi
+            fi
+        else
+            log "⚠️ Interface $PPP_IFACE not ready yet (attempt $i/3), waiting..."
+            echo "[RouteFix] Waiting for $PPP_IFACE to be UP (attempt $i)" >> /var/log/connexa-routefix.log
+            sleep 1
+        fi
+    done
+    
+    # Final verification
+    if [ $ROUTE_ADDED -eq 1 ]; then
+        if ip route show | grep -q "$IPREMOTE"; then
+            log "✅ Route verification passed"
+        else
+            log "⚠️ Route verification failed"
+        fi
+    else
+        log "❌ FAILED: $PPP_IFACE not ready after 3 attempts"
+        echo "[RouteFix] FAILED: $PPP_IFACE not ready after 3s" >> /var/log/connexa-routefix.log
+    fi
+fi
+
+# Check if default route exists
+if ip route show | grep -q "default via"; then
+    log "Default route already exists (good - not overriding)"
+else
+    log "No default route found - this may be intentional"
+fi
+
+# Show current routing table
+log "Current routes for $PPP_IFACE:"
+ip route show dev "$PPP_IFACE" 2>&1 | tee -a "$LOGFILE"
+
+log "ip-up complete"
+log "=========================================="
+
+exit 0

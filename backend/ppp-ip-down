@@ -1,0 +1,36 @@
+#!/bin/bash
+#
+# /etc/ppp/ip-down - Script run when PPP connection is terminated
+# CONNEXA v7.9
+#
+
+# Log file
+LOGFILE="/var/log/ppp-down.log"
+
+# Log function
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ip-down] $*" | tee -a "$LOGFILE"
+}
+
+log "=========================================="
+log "PPP Interface DOWN"
+log "Interface: $PPP_IFACE"
+log "Local IP: $IPLOCAL"
+log "Remote IP: $IPREMOTE"
+log "Connect time: $CONNECT_TIME seconds"
+log "Bytes sent: $BYTES_SENT"
+log "Bytes received: $BYTES_RCVD"
+log "=========================================="
+
+# Clean up routes if needed
+if [ -n "$IPREMOTE" ]; then
+    if ip route show | grep -q "$IPREMOTE"; then
+        log "Removing route to $IPREMOTE"
+        ip route del "$IPREMOTE/32" 2>&1 | tee -a "$LOGFILE" || true
+    fi
+fi
+
+log "ip-down complete"
+log "=========================================="
+
+exit 0
