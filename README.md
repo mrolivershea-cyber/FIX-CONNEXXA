@@ -7,8 +7,24 @@
 - Idempotent
 - Diagnostics
 
-## One-Command Installation
-To install the Service Manager module, run the following command:
+## Installation Scripts
+
+### Mini-Fix Patch (NEW!)
+Quick patch for environment variables and API path fixes:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/main/MINIFIX_PATCH.sh | sudo bash
+```
+
+**Fixes:**
+- Backend: Adds `load_dotenv()` for environment variable support
+- Frontend: Fixes double `/api` path in AuthContext.js
+- Automatic service restart
+
+See [MINIFIX_README.md](./MINIFIX_README.md) for detailed documentation.
+
+### Complete Service Manager Installation
+To install the complete Service Manager module, run:
 
 ```bash
 curl -O https://raw.githubusercontent.com/mrolivershea-cyber/FIX-CONNEXXA/main/install_service_manager.sh && bash install_service_manager.sh
